@@ -83,6 +83,22 @@ async function startServer() {
     return res.status(401).json({ success: false, message: 'Mot de passe incorrect' });
   });
 
+  // Change Admin Password (Admin only)
+  app.post('/api/auth/change-admin-password', (req: Request, res: Response) => {
+    if (!checkAdminAuth(req)) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+    const { currentPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.trim().length < 4) {
+      return res.status(400).json({ success: false, message: 'Le nouveau mot de passe doit comporter au moins 4 caractères' });
+    }
+    if (currentPassword && !db.verifyAdminPassword(currentPassword)) {
+      return res.status(401).json({ success: false, message: 'Mot de passe actuel incorrect' });
+    }
+    db.setAdminPassword(newPassword.trim());
+    return res.json({ success: true, message: 'Mot de passe administrateur mis à jour avec succès' });
+  });
+
   // List Voyages
   app.get('/api/voyages', (req: Request, res: Response) => {
     const isAdmin = checkAdminAuth(req);

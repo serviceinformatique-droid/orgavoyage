@@ -87,7 +87,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
             </div>
             <p className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              Mot de passe configuré pour l'administration : <strong className="font-mono text-slate-700">Gafa8432</strong>
+              <span>Accès réservé aux administrateurs du portail DocuSeal.</span>
             </p>
           </div>
 

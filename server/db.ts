@@ -137,8 +137,7 @@ export class Database {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.voyages) && parsed.inscriptions) {
           this.data = parsed;
-          // Ensure password is up to date with Gafa8432
-          if (!this.data.adminPasswordHash || this.data.adminPasswordHash === 'admin2027') {
+          if (!this.data.adminPasswordHash) {
             this.data.adminPasswordHash = 'Gafa8432';
           }
           return true;
@@ -1156,13 +1155,13 @@ export class Database {
     return this.data.logs.slice(0, limit);
   }
 
-  // Admin authentication - Gafa8432
+  // Admin authentication
   verifyAdminPassword(password: string): boolean {
     const envPassword = process.env.ADMIN_PASSWORD;
     if (envPassword && password === envPassword) {
       return true;
     }
-    return password === this.data.adminPasswordHash || password === 'Gafa8432';
+    return password === this.data.adminPasswordHash;
   }
 
   setAdminPassword(newPassword: string): void {

@@ -47,6 +47,14 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
   const [voyageToDelete, setVoyageToDelete] = useState<Voyage | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Admin password change modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentAdminPassword, setCurrentAdminPassword] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordModalError, setPasswordModalError] = useState<string | null>(null);
+
   // Testing & sync states
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
@@ -341,6 +349,52 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
     }
   };
 
+  // Change Admin Password handler
+  const handleChangeAdminPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordModalError(null);
+
+    if (newAdminPassword.length < 4) {
+      setPasswordModalError('Le nouveau mot de passe doit contenir au moins 4 caractères.');
+      return;
+    }
+
+    if (newAdminPassword !== confirmAdminPassword) {
+      setPasswordModalError('Les deux mots de passe ne correspondent pas.');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const res = await fetch('/api/auth/change-admin-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+        },
+        body: JSON.stringify({
+          currentPassword: currentAdminPassword,
+          newPassword: newAdminPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionNotice({ type: 'success', message: '✓ Mot de passe administrateur modifié avec succès.' });
+        setShowPasswordModal(false);
+        setCurrentAdminPassword('');
+        setNewAdminPassword('');
+        setConfirmAdminPassword('');
+      } else {
+        setPasswordModalError(data.message || 'Erreur lors du changement de mot de passe.');
+      }
+    } catch {
+      setPasswordModalError('Erreur réseau lors de la communication avec le serveur.');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   // Test connection within form before saving (real API call)
   const handleTestFormConnection = async () => {
     const cleanedUrl = handleDocusealUrlChange(formDocusealUrl);
@@ -484,6 +538,23 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
             >
               <Plus className="w-4 h-4" />
               <span>Ajouter un site DocuSeal</span>
+            </button>
+
+            <button
+              id="btn-admin-change-pwd"
+              type="button"
+              onClick={() => {
+                setPasswordModalError(null);
+                setCurrentAdminPassword('');
+                setNewAdminPassword('');
+                setConfirmAdminPassword('');
+                setShowPasswordModal(true);
+              }}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold border border-slate-700 transition-all"
+              title="Changer le mot de passe du portail Admin"
+            >
+              <Key className="w-4 h-4 text-indigo-400" />
+              <span>Mot de passe Admin</span>
             </button>
 
             {voyages.length > 0 && (
@@ -1354,6 +1425,110 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Change Admin Password */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Mot de passe Administrateur
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Modifier le code d'accès au panneau de contrôle
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPasswordModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleChangeAdminPassword} className="mt-4 space-y-4">
+              {passwordModalError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{passwordModalError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Mot de passe actuel (optionnel)
+                </label>
+                <input
+                  type="password"
+                  value={currentAdminPassword}
+                  onChange={(e) => setCurrentAdminPassword(e.target.value)}
+                  placeholder="Saisissez l'ancien mot de passe..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nouveau mot de passe *
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={newAdminPassword}
+                  onChange={(e) => setNewAdminPassword(e.target.value)}
+                  placeholder="Au moins 4 caractères..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Confirmer le nouveau mot de passe *
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={confirmAdminPassword}
+                  onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                  placeholder="Répétez le nouveau mot de passe..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={changingPassword}
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {changingPassword ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Enregistrement...</span>
+                    </>
+                  ) : (
+                    <span>Mettre à jour le mot de passe</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
