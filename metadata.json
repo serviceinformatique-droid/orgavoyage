@@ -1,0 +1,6 @@
+{
+  "name": "Portail Voyages Scolaires",
+  "description": "Portail centralisé de suivi des inscriptions aux voyages scolaires avec connexion multi-instances DocuSeal, gestion des doubles signatures, relances et exports Excel/PDF.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
