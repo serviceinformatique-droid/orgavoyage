@@ -10,6 +10,7 @@ import { TeacherDashboard } from './components/TeacherDashboard.js';
 import { AdminDocuSealManager } from './components/AdminDocuSealManager.js';
 import { SyncLogsView } from './components/SyncLogsView.js';
 import { AdminLoginModal } from './components/AdminLoginModal.js';
+import { TripPasswordModal } from './components/TripPasswordModal.js';
 import { RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
 
 export default function App() {
@@ -23,6 +24,17 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [adminToken, setAdminToken] = useState<string>('');
   const [showAdminLoginModal, setShowAdminLoginModal] = useState<boolean>(false);
+
+  // Per-voyage password state (stores unlocked voyage passwords)
+  const [unlockedVoyages, setUnlockedVoyages] = useState<Record<string, string>>(() => {
+    try {
+      const saved = sessionStorage.getItem('ndm_unlocked_voyages');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [passwordModalVoyage, setPasswordModalVoyage] = useState<Voyage | null>(null);
 
   // Fetch voyages list from server
   const fetchVoyages = async (token?: string) => {
@@ -79,6 +91,40 @@ export default function App() {
     fetchVoyages('');
   };
 
+  const handleSelectVoyage = (voyageId: string) => {
+    setSelectedVoyageId(voyageId);
+    const target = voyages.find((v) => v.id === voyageId);
+    if (target?.has_password && !isAdmin && !unlockedVoyages[voyageId]) {
+      setPasswordModalVoyage(target);
+    }
+  };
+
+  const handleVoyageUnlocked = (voyageId: string, password: string) => {
+    setUnlockedVoyages((prev) => {
+      const updated = { ...prev, [voyageId]: password };
+      try {
+        sessionStorage.setItem('ndm_unlocked_voyages', JSON.stringify(updated));
+      } catch (err) {
+        console.error(err);
+      }
+      return updated;
+    });
+    setPasswordModalVoyage(null);
+  };
+
+  const handleLockVoyage = (voyageId: string) => {
+    setUnlockedVoyages((prev) => {
+      const updated = { ...prev };
+      delete updated[voyageId];
+      try {
+        sessionStorage.setItem('ndm_unlocked_voyages', JSON.stringify(updated));
+      } catch (err) {
+        console.error(err);
+      }
+      return updated;
+    });
+  };
+
   const handleSelectVoyageForTeacherView = (voyageId: string) => {
     setSelectedVoyageId(voyageId);
     setCurrentTab('teacher');
@@ -122,8 +168,15 @@ export default function App() {
               <TeacherDashboard
                 voyages={voyages}
                 selectedVoyageId={selectedVoyageId}
-                onSelectVoyage={(id) => setSelectedVoyageId(id)}
+                onSelectVoyage={handleSelectVoyage}
                 onRefreshVoyages={() => fetchVoyages()}
+                voyagePassword={unlockedVoyages[selectedVoyageId]}
+                onRequestUnlock={() => {
+                  const curr = voyages.find((v) => v.id === selectedVoyageId);
+                  if (curr) setPasswordModalVoyage(curr);
+                }}
+                onLockVoyage={() => handleLockVoyage(selectedVoyageId)}
+                isAdmin={isAdmin}
               />
             )}
 
@@ -168,6 +221,16 @@ export default function App() {
         onClose={() => setShowAdminLoginModal(false)}
         onSuccess={handleAdminLoginSuccess}
       />
+
+      {/* Per-Trip Password Modal */}
+      {passwordModalVoyage && (
+        <TripPasswordModal
+          voyage={passwordModalVoyage}
+          isOpen={Boolean(passwordModalVoyage)}
+          onUnlock={(pwd) => handleVoyageUnlocked(passwordModalVoyage.id, pwd)}
+          onCancel={() => setPasswordModalVoyage(null)}
+        />
+      )}
     </div>
   );
 }

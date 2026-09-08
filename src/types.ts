@@ -55,6 +55,10 @@ export interface Voyage {
   last_sync_at?: string;
   last_sync_message?: string;
   
+  // Access control
+  mot_de_passe?: string; // Stored server-side, visible to admin only
+  has_password?: boolean; // Exposed to public so UI knows if password is required
+
   // Stats
   total_inscrits: number;
   total_complets: number;

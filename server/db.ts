@@ -199,15 +199,19 @@ export class Database {
   // Get all trips
   getVoyages(isAdmin = false): Voyage[] {
     return this.data.voyages.map((v) => {
+      const hasPassword = Boolean(v.mot_de_passe && v.mot_de_passe.trim().length > 0);
       if (!isAdmin) {
         return {
           ...v,
+          mot_de_passe: undefined,
+          has_password: hasPassword,
           docuseal_api_key: undefined,
           docuseal_api_key_masked: v.docuseal_api_key ? `••••••••${v.docuseal_api_key.slice(-4)}` : undefined,
         };
       }
       return {
         ...v,
+        has_password: hasPassword,
         docuseal_api_key_masked: v.docuseal_api_key ? `••••••••${v.docuseal_api_key.slice(-4)}` : undefined,
       };
     });
@@ -216,14 +220,34 @@ export class Database {
   getVoyageById(id: string, isAdmin = false): Voyage | undefined {
     const v = this.data.voyages.find((x) => x.id === id);
     if (!v) return undefined;
+    const hasPassword = Boolean(v.mot_de_passe && v.mot_de_passe.trim().length > 0);
     if (!isAdmin) {
       return {
         ...v,
+        mot_de_passe: undefined,
+        has_password: hasPassword,
         docuseal_api_key: undefined,
         docuseal_api_key_masked: v.docuseal_api_key ? `••••••••${v.docuseal_api_key.slice(-4)}` : undefined,
       };
     }
-    return v;
+    return {
+      ...v,
+      has_password: hasPassword,
+    };
+  }
+
+  // Verify trip password
+  verifyVoyagePassword(id: string, passwordInput: string): { valid: boolean; message: string } {
+    const v = this.data.voyages.find((x) => x.id === id);
+    if (!v) return { valid: false, message: 'Voyage introuvable' };
+    if (!v.mot_de_passe || v.mot_de_passe.trim().length === 0) {
+      return { valid: true, message: 'Accès libre (aucun mot de passe requis)' };
+    }
+    const cleanInput = (passwordInput || '').trim();
+    if (cleanInput === v.mot_de_passe.trim()) {
+      return { valid: true, message: 'Mot de passe valide' };
+    }
+    return { valid: false, message: 'Mot de passe incorrect pour ce voyage' };
   }
 
   // Add a new trip (DocuSeal site configuration)
@@ -240,6 +264,7 @@ export class Database {
     docuseal_url: string;
     docuseal_api_key: string;
     docuseal_template_id: string;
+    mot_de_passe?: string;
   }): Voyage {
     const id = `voyage-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
@@ -262,6 +287,7 @@ export class Database {
       docuseal_url: normalizeDocuSealUrl(voyageData.docuseal_url),
       docuseal_api_key: voyageData.docuseal_api_key.trim(),
       docuseal_template_id: voyageData.docuseal_template_id.trim(),
+      mot_de_passe: voyageData.mot_de_passe ? voyageData.mot_de_passe.trim() : undefined,
       connection_status: 'untested',
       total_inscrits: 0,
       total_complets: 0,
@@ -304,12 +330,17 @@ export class Database {
     const newTemplateId = updateData.docuseal_template_id !== undefined ? updateData.docuseal_template_id.trim() : '';
     const finalTemplateId = newTemplateId.length > 0 ? newTemplateId : (tplFromUrl || current.docuseal_template_id);
 
+    const finalMotDePasse = updateData.mot_de_passe !== undefined
+      ? (updateData.mot_de_passe.trim().length > 0 ? updateData.mot_de_passe.trim() : undefined)
+      : current.mot_de_passe;
+
     const updated: Voyage = {
       ...current,
       ...updateData,
       docuseal_api_key: finalApiKey,
       docuseal_template_id: finalTemplateId,
       docuseal_url: updateData.docuseal_url !== undefined ? normalizeDocuSealUrl(updateData.docuseal_url) : current.docuseal_url,
+      mot_de_passe: finalMotDePasse,
       updated_at: now,
     };
 
@@ -1011,32 +1042,92 @@ export class Database {
   }
 
   // Send relance / reminder
-  relanceInscription(inscriptionId: string, parentNum?: 1 | 2): { success: boolean; message: string; signingUrl: string } {
+  async relanceInscription(inscriptionId: string, parentNum?: 1 | 2): Promise<{
+    success: boolean;
+    message: string;
+    signingUrl: string;
+    emailSentViaDocuseal?: boolean;
+    docusealMessage?: string;
+    parentNom: string;
+    parentEmail: string;
+    emailSubject: string;
+    emailBody: string;
+  }> {
     const item = this.getInscriptionById(inscriptionId);
-    if (!item) return { success: false, message: 'Inscription introuvable', signingUrl: '' };
+    if (!item) {
+      return {
+        success: false,
+        message: 'Inscription introuvable',
+        signingUrl: '',
+        parentNom: '',
+        parentEmail: '',
+        emailSubject: '',
+        emailBody: '',
+      };
+    }
 
     const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
     item.derniere_relance = now;
 
-    const voyage = this.data.voyages.find((v) => v.id === item.voyage_id);
+    const voyage = this.getVoyageById(item.voyage_id, true);
     const targetParent = parentNum === 2 ? item.parent2 : parentNum === 1 ? item.parent1 : (item.parent1.statut !== 'signed' ? item.parent1 : item.parent2);
 
-    const signingUrl = `${voyage?.docuseal_url || 'https://docuseal.com'}/s/${targetParent.slug || item.docuseal_submission_id}`;
+    const docusealBase = voyage?.docuseal_url ? normalizeDocuSealUrl(voyage.docuseal_url) : 'https://docuseal.ndmissions.fr';
+    const signingUrl = targetParent.slug 
+      ? `${docusealBase}/s/${targetParent.slug}` 
+      : `${docusealBase}/submissions/${item.docuseal_submission_id}`;
+
+    const emailSubject = `[${voyage?.etablissement || 'Notre-Dame des Missions'}] Voyage à ${voyage?.destination || 'Londres'} — Signature attendue pour ${item.eleve_prenom} ${item.eleve_nom}`;
+    const emailBody = `Bonjour ${targetParent.nom || 'Madame, Monsieur'},\n\nNous constatons qu'il manque encore votre signature pour valider le dossier d'inscription de votre enfant ${item.eleve_prenom} ${item.eleve_nom} (Classe ${item.classe}) au voyage à ${voyage?.destination || 'Londres'}.\n\nAfin de finaliser l'inscription dans les délais, merci de bien vouloir compléter et signer le document en cliquant directement sur le lien sécurisé suivant :\n👉 ${signingUrl}\n\nSi vous rencontrez la moindre difficulté, n'hésitez pas à nous contacter.\n\nCordialement,\nL'équipe organisatrice du voyage scolaire\n${voyage?.etablissement || 'Collège & Lycée Notre-Dame des Missions'}`;
+
+    // Attempt DocuSeal API notification if submitter_id and apiKey exist
+    let emailSentViaDocuseal = false;
+    let docusealMessage = '';
+
+    if (voyage?.docuseal_api_key && targetParent.submitter_id && targetParent.statut !== 'signed') {
+      try {
+        const putRes = await fetch(`${docusealBase}/api/submitters/${targetParent.submitter_id}`, {
+          method: 'PUT',
+          headers: {
+            'X-Auth-Token': voyage.docuseal_api_key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ send_email: true }),
+        });
+        if (putRes.ok) {
+          emailSentViaDocuseal = true;
+          docusealMessage = 'Notification envoyée avec succès par DocuSeal.';
+        } else {
+          const errJson: any = await putRes.json().catch(() => ({}));
+          docusealMessage = errJson?.error || `Code HTTP ${putRes.status}`;
+        }
+      } catch (err: any) {
+        docusealMessage = err.message || 'Erreur réseau vers DocuSeal';
+      }
+    }
 
     this.addLog({
       voyage_id: item.voyage_id,
       voyage_nom: voyage?.nom || 'Voyage',
       type: 'manual_sync',
       status: 'success',
-      message: `Relance enregistrée pour ${item.eleve_prenom} ${item.eleve_nom} (${targetParent.email})`,
+      message: `Relance pour ${item.eleve_prenom} ${item.eleve_nom} (${targetParent.email}) ${emailSentViaDocuseal ? '— Email renvoyé par DocuSeal' : ''}`,
     });
 
     this.saveToFile();
 
     return {
       success: true,
-      message: `Lien de relance généré pour ${targetParent.nom} (${targetParent.email})`,
+      message: emailSentViaDocuseal
+        ? `✓ Relance envoyée automatiquement par email à ${targetParent.nom} (${targetParent.email}) via DocuSeal.`
+        : `Lien de relance généré pour ${targetParent.nom} (${targetParent.email}).`,
       signingUrl,
+      emailSentViaDocuseal,
+      docusealMessage,
+      parentNom: targetParent.nom,
+      parentEmail: targetParent.email,
+      emailSubject,
+      emailBody,
     };
   }
 

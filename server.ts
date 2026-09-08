@@ -254,8 +254,37 @@ async function startServer() {
     });
   });
 
+  // Verify Trip Password (for teachers)
+  app.post('/api/voyages/:id/verify-password', (req: Request, res: Response) => {
+    const { password } = req.body;
+    const result = db.verifyVoyagePassword(req.params.id, password || '');
+    if (!result.valid) {
+      return res.status(401).json(result);
+    }
+    res.json(result);
+  });
+
   // Get Inscriptions for a Voyage with search & filters
   app.get('/api/voyages/:id/inscriptions', (req: Request, res: Response) => {
+    // Check trip password protection
+    const voyage = db.getVoyageById(req.params.id, true);
+    if (!voyage) {
+      return res.status(404).json({ error: 'Voyage introuvable' });
+    }
+
+    if (voyage.mot_de_passe && voyage.mot_de_passe.trim().length > 0) {
+      const isAdmin = checkAdminAuth(req);
+      const clientPassword =
+        ((req.headers['x-voyage-password'] as string | undefined)?.trim()) ||
+        ((req.query.password as string | undefined)?.trim());
+      if (!isAdmin && clientPassword !== voyage.mot_de_passe.trim()) {
+        return res.status(403).json({
+          error: 'Accès restreint : mot de passe requis pour ce voyage.',
+          passwordRequired: true,
+        });
+      }
+    }
+
     const search = req.query.search as string | undefined;
     const classe = req.query.classe as string | undefined;
     const statut = req.query.statut as string | undefined;
@@ -274,9 +303,9 @@ async function startServer() {
   });
 
   // Send Relance / Reminder
-  app.post('/api/inscriptions/:id/relance', (req: Request, res: Response) => {
+  app.post('/api/inscriptions/:id/relance', async (req: Request, res: Response) => {
     const parentNum = req.body.parentNum as 1 | 2 | undefined;
-    const result = db.relanceInscription(req.params.id, parentNum);
+    const result = await db.relanceInscription(req.params.id, parentNum);
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -392,9 +421,19 @@ async function startServer() {
 
   // Export Excel for a trip
   app.get('/api/voyages/:id/export/excel', (req: Request, res: Response) => {
-    const voyage = db.getVoyageById(req.params.id, false);
+    const voyage = db.getVoyageById(req.params.id, true);
     if (!voyage) {
       return res.status(404).send('Voyage non trouvé');
+    }
+
+    if (voyage.mot_de_passe && voyage.mot_de_passe.trim().length > 0) {
+      const isAdmin = checkAdminAuth(req);
+      const queryPassword = (req.query.password as string | undefined)?.trim();
+      const headerPassword = (req.headers['x-voyage-password'] as string | undefined)?.trim();
+      const provided = queryPassword || headerPassword;
+      if (!isAdmin && provided !== voyage.mot_de_passe.trim()) {
+        return res.status(403).send('Accès refusé : mot de passe du voyage requis pour télécharger l’export.');
+      }
     }
 
     const inscriptions = db.getInscriptions(voyage.id);

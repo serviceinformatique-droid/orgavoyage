@@ -15,7 +15,9 @@ import {
   AlertTriangle,
   XCircle,
   ExternalLink,
-  ChevronDown
+  ChevronDown,
+  Lock,
+  KeyRound
 } from 'lucide-react';
 import { StudentDetailModal } from './StudentDetailModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
@@ -25,6 +27,10 @@ interface TeacherDashboardProps {
   selectedVoyageId: string;
   onSelectVoyage: (id: string) => void;
   onRefreshVoyages: () => void;
+  voyagePassword?: string;
+  onRequestUnlock?: () => void;
+  onLockVoyage?: () => void;
+  isAdmin?: boolean;
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -32,9 +38,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   selectedVoyageId,
   onSelectVoyage,
   onRefreshVoyages,
+  voyagePassword,
+  onRequestUnlock,
+  onLockVoyage,
+  isAdmin,
 }) => {
   const [inscriptions, setInscriptions] = useState<Inscription[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isLockedByPassword, setIsLockedByPassword] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClasse, setSelectedClasse] = useState('Toutes');
   const [selectedStatut, setSelectedStatut] = useState('Tous');
@@ -57,8 +68,24 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       if (selectedClasse && selectedClasse !== 'Toutes') params.append('classe', selectedClasse);
       if (selectedStatut && selectedStatut !== 'Tous') params.append('statut', selectedStatut);
 
-      const res = await fetch(`/api/voyages/${currentVoyage.id}/inscriptions?${params.toString()}`);
-      if (res.ok) {
+      const headers: Record<string, string> = {};
+      if (voyagePassword) {
+        headers['x-voyage-password'] = voyagePassword;
+      }
+      const adminToken = sessionStorage.getItem('ndm_admin_token');
+      if (isAdmin && adminToken) {
+        headers['x-admin-token'] = adminToken;
+      }
+
+      const res = await fetch(`/api/voyages/${currentVoyage.id}/inscriptions?${params.toString()}`, {
+        headers,
+      });
+
+      if (res.status === 403) {
+        setIsLockedByPassword(true);
+        setInscriptions([]);
+      } else if (res.ok) {
+        setIsLockedByPassword(false);
         const data = await res.json();
         setInscriptions(data);
       }
@@ -71,7 +98,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   useEffect(() => {
     fetchInscriptions();
-  }, [selectedVoyageId, searchQuery, selectedClasse, selectedStatut]);
+  }, [selectedVoyageId, searchQuery, selectedClasse, selectedStatut, voyagePassword, isAdmin]);
 
   // Synchronize now
   const handleSyncNow = async () => {
@@ -101,7 +128,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Export Excel
   const handleExportExcel = () => {
     if (!currentVoyage) return;
-    window.location.href = `/api/voyages/${currentVoyage.id}/export/excel`;
+    if (currentVoyage.has_password && !isAdmin && !voyagePassword) {
+      if (onRequestUnlock) onRequestUnlock();
+      return;
+    }
+    const params = new URLSearchParams();
+    if (voyagePassword) params.append('password', voyagePassword);
+    const token = sessionStorage.getItem('ndm_admin_token');
+    if (isAdmin && token) params.append('adminToken', token);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    window.location.href = `/api/voyages/${currentVoyage.id}/export/excel${queryStr}`;
   };
 
   // Available classes for dropdown: dynamically include individual classes from inscriptions
@@ -156,7 +192,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               >
                 {voyages.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.nom} ({v.total_complets}/{v.total_inscrits})
+                    {v.has_password ? '🔒 ' : ''}{v.nom} ({v.total_complets}/{v.total_inscrits})
                   </option>
                 ))}
               </select>
@@ -177,6 +213,39 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <Calendar className="w-3.5 h-3.5 text-indigo-600" />
                 <span>Du {currentVoyage.date_depart} au {currentVoyage.date_retour}</span>
               </div>
+
+              {currentVoyage.has_password && (
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-medium ${
+                  isLockedByPassword || (!voyagePassword && !isAdmin)
+                    ? 'bg-amber-100/80 text-amber-900 border-amber-300'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                }`}>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>
+                    {isLockedByPassword || (!voyagePassword && !isAdmin)
+                      ? 'Accès Verrouillé'
+                      : 'Accès Déverrouillé'}
+                  </span>
+                  {(isLockedByPassword || (!voyagePassword && !isAdmin)) && onRequestUnlock && (
+                    <button
+                      onClick={onRequestUnlock}
+                      className="ml-1 text-xs font-bold underline text-amber-900 hover:text-indigo-900"
+                    >
+                      (Déverrouiller)
+                    </button>
+                  )}
+                  {voyagePassword && !isAdmin && onLockVoyage && (
+                    <button
+                      onClick={onLockVoyage}
+                      className="ml-1 text-[11px] underline text-slate-500 hover:text-slate-800"
+                      title="Verrouiller à nouveau"
+                    >
+                      (Reverrouiller)
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center gap-1.5 bg-indigo-50 text-indigo-800 px-3 py-1.5 rounded-xl border border-indigo-100 font-medium">
                 <span>DocuSeal : <strong>{currentVoyage.docuseal_instance_name}</strong></span>
               </div>
@@ -406,6 +475,30 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <td colSpan={7} className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
                     <span>Chargement des inscriptions...</span>
+                  </td>
+                </tr>
+              ) : isLockedByPassword || (currentVoyage?.has_password && !isAdmin && !voyagePassword) ? (
+                <tr>
+                  <td colSpan={7} className="py-14 text-center">
+                    <div className="max-w-md mx-auto p-6 bg-slate-50 border border-slate-200 rounded-2xl">
+                      <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-3">
+                        <Lock className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900">Accès restreint par mot de passe</h3>
+                      <p className="text-xs text-slate-500 mt-1 mb-4 leading-relaxed">
+                        L'accès aux inscriptions et coordonnées des familles pour le voyage <strong>{currentVoyage?.nom}</strong> est protégé.
+                      </p>
+                      {onRequestUnlock && (
+                        <button
+                          type="button"
+                          onClick={onRequestUnlock}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                          <span>Saisir le mot de passe enseignant</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : inscriptions.length === 0 ? (
