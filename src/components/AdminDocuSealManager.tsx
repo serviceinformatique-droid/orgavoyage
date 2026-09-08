@@ -44,6 +44,8 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingVoyage, setEditingVoyage] = useState<Voyage | null>(null);
   const [activeWebhookVoyage, setActiveWebhookVoyage] = useState<Voyage | null>(null);
+  const [voyageToDelete, setVoyageToDelete] = useState<Voyage | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Testing & sync states
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -291,24 +293,51 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
     }
   };
 
-  // Delete voyage
-  const handleDeleteVoyage = async (id: string, nom: string) => {
-    if (!window.confirm(`Confirmez-vous la suppression du site DocuSeal et du voyage "${nom}" ?`)) {
-      return;
-    }
+  // Confirm and execute delete voyage (No window.confirm, handles both DELETE and POST)
+  const handleConfirmDeleteVoyage = async () => {
+    if (!voyageToDelete) return;
+    setIsDeleting(true);
+    const nom = voyageToDelete.nom;
+    const id = voyageToDelete.id;
+
     try {
-      const res = await fetch(`/api/voyages/${id}`, {
+      // First attempt DELETE
+      let res = await fetch(`/api/voyages/${id}`, {
         method: 'DELETE',
         headers: {
+          'Content-Type': 'application/json',
           'x-admin-token': adminToken,
         },
       });
-      if (res.ok) {
-        setActionNotice({ type: 'success', message: `Voyage "${nom}" supprimé.` });
-        onRefreshVoyages();
+
+      // If DELETE not allowed by proxy or returns error, fallback to POST /api/voyages/:id/delete
+      if (!res.ok && res.status !== 404) {
+        res = await fetch(`/api/voyages/${id}/delete`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken,
+          },
+        });
       }
-    } catch {
-      alert('Erreur lors de la suppression');
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && (data.success || res.status === 200)) {
+        setActionNotice({ type: 'success', message: `✓ Le voyage "${nom}" a été supprimé avec succès.` });
+        setVoyageToDelete(null);
+        if (editingVoyage?.id === id) {
+          setShowAddModal(false);
+          setEditingVoyage(null);
+        }
+        onRefreshVoyages();
+      } else {
+        setActionNotice({ type: 'error', message: data.error || data.message || 'Erreur lors de la suppression du voyage.' });
+      }
+    } catch (err: any) {
+      setActionNotice({ type: 'error', message: `Erreur réseau : ${err.message || 'Impossible de joindre le serveur'}` });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -761,7 +790,7 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                   </button>
 
                   <button
-                    onClick={() => handleDeleteVoyage(v.id, v.nom)}
+                    onClick={() => setVoyageToDelete(v)}
                     className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
                     title="Supprimer ce voyage"
                   >
@@ -1108,22 +1137,37 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                 </div>
               </div>
 
-              {/* Submit Buttons */}
-              <div className="pt-2 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={formSubmitting}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-all disabled:opacity-50"
-                >
-                  {formSubmitting ? 'Enregistrement...' : editingVoyage ? 'Mettre à jour le site' : 'Enregistrer le site DocuSeal'}
-                </button>
+              {/* Submit Buttons & Delete Option */}
+              <div className="pt-2 flex items-center justify-between gap-3">
+                {editingVoyage ? (
+                  <button
+                    type="button"
+                    onClick={() => setVoyageToDelete(editingVoyage)}
+                    className="px-3 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Supprimer ce voyage</span>
+                  </button>
+                ) : (
+                  <div></div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={formSubmitting}
+                    className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-all disabled:opacity-50"
+                  >
+                    {formSubmitting ? 'Enregistrement...' : editingVoyage ? 'Mettre à jour le site' : 'Enregistrer le site DocuSeal'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1249,6 +1293,65 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                 className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold"
               >
                 Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal for Voyage Deletion (Bypasses iframe window.confirm restrictions) */}
+      {voyageToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-rose-200">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-extrabold text-slate-900 text-center">
+              Supprimer ce voyage ?
+            </h3>
+
+            <div className="mt-3 bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-center">
+              <div className="text-sm font-bold text-slate-900">{voyageToDelete.nom}</div>
+              <div className="text-xs text-slate-500 mt-1">
+                Destination : <strong>{voyageToDelete.destination}</strong> • {voyageToDelete.total_inscrits} élève(s)
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                {voyageToDelete.docuseal_url}
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 text-center mt-3 leading-relaxed">
+              Cette action retirera ce voyage et le suivi de ses inscriptions de ce portail. 
+              Vos modèles et formulaires sur votre serveur DocuSeal distant ne seront pas supprimés.
+            </p>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setVoyageToDelete(null)}
+                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDeleteVoyage}
+                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Suppression en cours...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Oui, supprimer</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

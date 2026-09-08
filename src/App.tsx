@@ -49,8 +49,12 @@ export default function App() {
       if (res.ok) {
         const data: Voyage[] = await res.json();
         setVoyages(data);
-        if (data.length > 0 && !selectedVoyageId) {
-          setSelectedVoyageId(data[0].id);
+        if (data.length > 0) {
+          if (!selectedVoyageId || !data.some((v) => v.id === selectedVoyageId)) {
+            setSelectedVoyageId(data[0].id);
+          }
+        } else {
+          setSelectedVoyageId('');
         }
         setError(null);
       } else {

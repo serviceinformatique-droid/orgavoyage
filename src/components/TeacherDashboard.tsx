@@ -17,7 +17,8 @@ import {
   ExternalLink,
   ChevronDown,
   Lock,
-  KeyRound
+  KeyRound,
+  Trash2
 } from 'lucide-react';
 import { StudentDetailModal } from './StudentDetailModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
@@ -126,6 +127,48 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   // Export Excel
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleConfirmDelete = async () => {
+    if (!currentVoyage) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const adminToken = sessionStorage.getItem('ndm_admin_token') || '';
+      let res = await fetch(`/api/voyages/${currentVoyage.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+        },
+      });
+
+      if (!res.ok && res.status !== 404) {
+        res = await fetch(`/api/voyages/${currentVoyage.id}/delete`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken,
+          },
+        });
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.success || res.status === 200)) {
+        setShowDeleteModal(false);
+        onRefreshVoyages();
+      } else {
+        setDeleteError(data.error || data.message || 'Erreur lors de la suppression.');
+      }
+    } catch (err: any) {
+      setDeleteError(`Erreur réseau : ${err.message || 'Impossible de joindre le serveur'}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleExportExcel = () => {
     if (!currentVoyage) return;
     if (currentVoyage.has_password && !isAdmin && !voyagePassword) {
@@ -258,6 +301,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
                 <span>{syncing ? 'Synchronisation...' : '🔄 Synchroniser maintenant'}</span>
               </button>
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 rounded-xl font-bold border border-rose-200 shadow-2xs transition-all text-xs"
+                  title="Supprimer ce voyage (Accès Administrateur)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Supprimer le voyage</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -689,6 +744,71 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           inscriptions={inscriptions}
           onClose={() => setShowPdfModal(false)}
         />
+      )}
+
+      {/* Delete Voyage Confirmation Modal (Admin) */}
+      {showDeleteModal && currentVoyage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-rose-200">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-extrabold text-slate-900 text-center">
+              Supprimer ce voyage ?
+            </h3>
+
+            <div className="mt-3 bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-center">
+              <div className="text-sm font-bold text-slate-900">{currentVoyage.nom}</div>
+              <div className="text-xs text-slate-500 mt-1">
+                Destination : <strong>{currentVoyage.destination}</strong> • {currentVoyage.total_inscrits} élève(s)
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="mt-3 p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl font-medium">
+                {deleteError}
+              </div>
+            )}
+
+            <p className="text-xs text-slate-500 text-center mt-3 leading-relaxed">
+              Cette action retirera ce voyage et le suivi de ses inscriptions de ce portail. 
+              Vos modèles et formulaires sur votre serveur DocuSeal distant ne seront pas supprimés.
+            </p>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteError(null);
+                }}
+                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Suppression...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Oui, supprimer</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -135,14 +135,17 @@ async function startServer() {
     res.json(updated);
   });
 
-  // Delete Voyage (Admin only)
-  app.delete('/api/voyages/:id', (req: Request, res: Response) => {
+  // Delete Voyage (Admin only) - supports both DELETE and POST for maximum proxy/network compatibility
+  const handleDeleteVoyageRequest = (req: Request, res: Response) => {
     const ok = db.deleteVoyage(req.params.id);
     if (!ok) {
-      return res.status(404).json({ error: 'Voyage introuvable' });
+      return res.status(404).json({ success: false, error: 'Voyage introuvable ou déjà supprimé' });
     }
-    res.json({ success: true, message: 'Voyage supprimé' });
-  });
+    res.json({ success: true, message: 'Voyage supprimé avec succès' });
+  };
+
+  app.delete('/api/voyages/:id', handleDeleteVoyageRequest);
+  app.post('/api/voyages/:id/delete', handleDeleteVoyageRequest);
 
   // Test Connection to a DocuSeal instance
   app.post('/api/voyages/:id/test-connection', async (req: Request, res: Response) => {
