@@ -58,7 +58,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
               Établissement
             </div>
             <div className="text-2xl font-black text-slate-900 tracking-tight">
-              {voyage.etablissement || 'NOTRE-DAME DES MISSIONS'}
+              {voyage.etablissement || "L'établissement scolaire Notre Dame des Missions"}
             </div>
 
             <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">

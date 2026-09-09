@@ -331,6 +331,16 @@ async function startServer() {
     res.json(result);
   });
 
+  // Send Mass Relance / Reminders for an entire Voyage
+  app.post('/api/voyages/:id/relance-masse', async (req: Request, res: Response) => {
+    const { targetStatus, classe } = req.body || {};
+    const result = await db.relanceMasseVoyage(req.params.id, { targetStatus, classe });
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  });
+
   // Download signed document (generates HTML or PDF preview)
   app.get('/api/inscriptions/:id/document', (req: Request, res: Response) => {
     const item = db.getInscriptionById(req.params.id);
@@ -371,7 +381,7 @@ async function startServer() {
 
   <div class="header">
     <div>
-      <h1 style="margin: 0; font-size: 22px; color: #0f172a;">${voyage?.etablissement || 'Notre-Dame des Missions'}</h1>
+      <h1 style="margin: 0; font-size: 22px; color: #0f172a;">${voyage?.etablissement || "L'établissement scolaire Notre Dame des Missions"}</h1>
       <p style="margin: 4px 0 0 0; color: #64748b; font-size: 14px;">Dossier d'inscription au voyage scolaire — ${voyage?.nom || 'Voyage'}</p>
     </div>
     <div>

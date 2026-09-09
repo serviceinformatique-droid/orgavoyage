@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Voyage } from '../types.js';
+import { Voyage, Inscription } from '../types.js';
 import {
   Plus,
   Zap,
@@ -24,8 +24,10 @@ import {
   Lock,
   Unlock,
   Eye,
-  EyeOff
+  EyeOff,
+  Mail
 } from 'lucide-react';
+import { MassRelanceModal } from './MassRelanceModal.js';
 
 interface AdminDocuSealManagerProps {
   voyages: Voyage[];
@@ -66,7 +68,7 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
   const [formDestination, setFormDestination] = useState('');
   const [formDateDepart, setFormDateDepart] = useState('2027-04-12');
   const [formDateRetour, setFormDateRetour] = useState('2027-04-16');
-  const [formEtablissement, setFormEtablissement] = useState('Notre-Dame des Missions');
+  const [formEtablissement, setFormEtablissement] = useState("L'établissement scolaire Notre Dame des Missions");
   const [formClasses, setFormClasses] = useState('5A, 5B, 5C');
   const [formDocusealName, setFormDocusealName] = useState('');
   const [formDocusealUrl, setFormDocusealUrl] = useState('');
@@ -89,6 +91,29 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
 
   // Inspect raw DocuSeal data modal
   const [inspectModal, setInspectModal] = useState<{ voyage: Voyage; raw: any; loading: boolean } | null>(null);
+
+  // Mass relance modal state
+  const [relanceVoyage, setRelanceVoyage] = useState<{ voyage: Voyage; inscriptions: Inscription[] } | null>(null);
+  const [loadingRelanceId, setLoadingRelanceId] = useState<string | null>(null);
+
+  const handleOpenRelance = async (v: Voyage) => {
+    setLoadingRelanceId(v.id);
+    try {
+      const res = await fetch(`/api/voyages/${v.id}/inscriptions`, {
+        headers: { 'x-admin-token': adminToken },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRelanceVoyage({ voyage: v, inscriptions: data });
+      } else {
+        setActionNotice({ type: 'error', message: 'Impossible de charger les dossiers pour ce voyage.' });
+      }
+    } catch {
+      setActionNotice({ type: 'error', message: 'Erreur de communication lors du chargement des dossiers.' });
+    } finally {
+      setLoadingRelanceId(null);
+    }
+  };
 
   // Reset / Purge entire database
   const handleResetDatabase = async () => {
@@ -194,7 +219,7 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
     setFormDestination('');
     setFormDateDepart(new Date().toISOString().split('T')[0]);
     setFormDateRetour(new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0]);
-    setFormEtablissement('');
+    setFormEtablissement("L'établissement scolaire Notre Dame des Missions");
     setFormClasses('');
     setFormDocusealName(`Instance DocuSeal #${voyages.length + 1}`);
     setFormDocusealUrl('');
@@ -615,7 +640,7 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
           <div>
             <div className="text-xs text-slate-400 uppercase font-bold">Élèves Enregistrés</div>
             <div className="text-2xl font-black text-white mt-0.5">{totalInscritsAll}</div>
-            <div className="text-[11px] text-slate-400">Total global de l’établissement</div>
+            <div className="text-[11px] text-slate-400">Total global de L'établissement scolaire Notre Dame des Missions</div>
           </div>
 
           <div>
@@ -861,6 +886,15 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                   </button>
 
                   <button
+                    onClick={() => handleOpenRelance(v)}
+                    disabled={loadingRelanceId === v.id}
+                    className="p-2 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg text-xs font-bold transition-colors"
+                    title="Relance en masse des parents pour ce voyage"
+                  >
+                    <Mail className={`w-4 h-4 ${loadingRelanceId === v.id ? 'animate-bounce' : ''}`} />
+                  </button>
+
+                  <button
                     onClick={() => setVoyageToDelete(v)}
                     className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
                     title="Supprimer ce voyage"
@@ -950,6 +984,19 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                       value={formClasses}
                       onChange={(e) => setFormClasses(e.target.value)}
                       placeholder="Ex: 5A, 5B, 5C"
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Établissement scolaire
+                    </label>
+                    <input
+                      type="text"
+                      value={formEtablissement}
+                      onChange={(e) => setFormEtablissement(e.target.value)}
+                      placeholder="L'établissement scolaire Notre Dame des Missions"
                       className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -1531,6 +1578,20 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Mass Relance Modal */}
+      {relanceVoyage && (
+        <MassRelanceModal
+          isOpen={!!relanceVoyage}
+          voyage={relanceVoyage.voyage}
+          inscriptions={relanceVoyage.inscriptions}
+          classesList={Array.from(new Set(relanceVoyage.inscriptions.map((i) => i.classe).filter(Boolean))).sort()}
+          onClose={() => setRelanceVoyage(null)}
+          onSuccess={() => {
+            onRefreshVoyages();
+          }}
+        />
       )}
     </div>
   );

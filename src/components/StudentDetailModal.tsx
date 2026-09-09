@@ -48,6 +48,14 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   const [relanceSending, setRelanceSending] = useState(false);
   const [relanceResult, setRelanceResult] = useState<RelanceResult | null>(null);
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   if (!inscription || !voyage) return null;
 
   // Clean base URL without trailing slash
@@ -95,15 +103,25 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden my-4 sm:my-8 animate-in fade-in zoom-in-95 duration-150 relative"
+      >
         {/* Header */}
-        <div className="bg-slate-900 text-white p-6 relative">
+        <div className="bg-slate-900 text-white p-5 sm:p-6 relative pr-16">
+          {/* Prominent touch-friendly close button for mobile & desktop */}
           <button
+            type="button"
             onClick={onClose}
-            className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+            aria-label="Fermer la fiche"
+            className="absolute top-4 right-4 z-20 flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-white border border-slate-600 shadow-md transition-all touch-manipulation cursor-pointer"
+            title="Fermer la fiche"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
           </button>
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[11px] font-extrabold tracking-wider uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -459,6 +477,18 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Explicit close button for portable / mobile screen */}
+          <div className="pt-3 border-t border-slate-200 sm:hidden">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
+            >
+              <X className="w-4 h-4 stroke-[2.5]" />
+              <span>Fermer la fiche</span>
+            </button>
           </div>
         </div>
       </div>

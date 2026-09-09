@@ -203,7 +203,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-extrabold uppercase tracking-wider text-slate-700">
-              Collège & Lycée Notre-Dame des Missions
+              L'établissement scolaire Notre Dame des Missions
             </span>
             <span>•</span>
             <span>Portail Centralisé DocuSeal</span>

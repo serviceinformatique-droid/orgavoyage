@@ -140,6 +140,17 @@ export class Database {
           if (!this.data.adminPasswordHash) {
             this.data.adminPasswordHash = 'Gafa8432';
           }
+          // Normalize establishment to "L'établissement scolaire Notre Dame des Missions"
+          let changed = false;
+          this.data.voyages.forEach((v) => {
+            if (!v.etablissement || v.etablissement === 'Établissement Scolaire' || v.etablissement === 'Établissement scolaire') {
+              v.etablissement = "L'établissement scolaire Notre Dame des Missions";
+              changed = true;
+            }
+          });
+          if (changed) {
+            this.saveToFile();
+          }
           return true;
         }
       }
@@ -279,7 +290,7 @@ export class Database {
       destination: voyageData.destination,
       date_depart: voyageData.date_depart,
       date_retour: voyageData.date_retour,
-      etablissement: voyageData.etablissement || 'Établissement Scolaire',
+      etablissement: voyageData.etablissement || "L'établissement scolaire Notre Dame des Missions",
       classes_concernees: classes,
       statut: voyageData.statut || 'inscriptions_ouvertes',
       docuseal_instance_name: voyageData.docuseal_instance_name || `DocuSeal ${this.data.voyages.length + 1}`,
@@ -1076,8 +1087,8 @@ export class Database {
       ? `${docusealBase}/s/${targetParent.slug}` 
       : `${docusealBase}/submissions/${item.docuseal_submission_id}`;
 
-    const emailSubject = `[${voyage?.etablissement || 'Notre-Dame des Missions'}] Voyage à ${voyage?.destination || 'Londres'} — Signature attendue pour ${item.eleve_prenom} ${item.eleve_nom}`;
-    const emailBody = `Bonjour ${targetParent.nom || 'Madame, Monsieur'},\n\nNous constatons qu'il manque encore votre signature pour valider le dossier d'inscription de votre enfant ${item.eleve_prenom} ${item.eleve_nom} (Classe ${item.classe}) au voyage à ${voyage?.destination || 'Londres'}.\n\nAfin de finaliser l'inscription dans les délais, merci de bien vouloir compléter et signer le document en cliquant directement sur le lien sécurisé suivant :\n👉 ${signingUrl}\n\nSi vous rencontrez la moindre difficulté, n'hésitez pas à nous contacter.\n\nCordialement,\nL'équipe organisatrice du voyage scolaire\n${voyage?.etablissement || 'Collège & Lycée Notre-Dame des Missions'}`;
+    const emailSubject = `[${voyage?.etablissement || "L'établissement scolaire Notre Dame des Missions"}] Voyage à ${voyage?.destination || 'Londres'} — Signature attendue pour ${item.eleve_prenom} ${item.eleve_nom}`;
+    const emailBody = `Bonjour ${targetParent.nom || 'Madame, Monsieur'},\n\nNous constatons qu'il manque encore votre signature pour valider le dossier d'inscription de votre enfant ${item.eleve_prenom} ${item.eleve_nom} (Classe ${item.classe}) au voyage à ${voyage?.destination || 'Londres'}.\n\nAfin de finaliser l'inscription dans les délais, merci de bien vouloir compléter et signer le document en cliquant directement sur le lien sécurisé suivant :\n👉 ${signingUrl}\n\nSi vous rencontrez la moindre difficulté, n'hésitez pas à nous contacter.\n\nCordialement,\nL'équipe organisatrice du voyage scolaire\n${voyage?.etablissement || "L'établissement scolaire Notre Dame des Missions"}`;
 
     // Attempt DocuSeal API notification if submitter_id and apiKey exist
     let emailSentViaDocuseal = false;
@@ -1127,6 +1138,198 @@ export class Database {
       parentEmail: targetParent.email,
       emailSubject,
       emailBody,
+    };
+  }
+
+  // Send Mass Relance / Reminders for a Voyage
+  async relanceMasseVoyage(
+    voyageId: string,
+    filter?: {
+      targetStatus?: 'all_incomplete' | 'a_finaliser' | 'non_signe';
+      classe?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    totalInscriptionsTargeted: number;
+    totalParentsToContact: number;
+    totalEmailsDocuSealSent: number;
+    parentsEmailsList: string[];
+    mailToUrl: string;
+    emailSubject: string;
+    emailBody: string;
+    details: Array<{
+      inscriptionId: string;
+      eleve: string;
+      classe: string;
+      parents: Array<{
+        nom: string;
+        email: string;
+        parentNum: 1 | 2;
+        signingUrl: string;
+        sentViaDocuseal: boolean;
+        docusealMessage?: string;
+      }>;
+    }>;
+  }> {
+    const voyage = this.getVoyageById(voyageId, true);
+    if (!voyage) {
+      return {
+        success: false,
+        message: 'Voyage introuvable',
+        totalInscriptionsTargeted: 0,
+        totalParentsToContact: 0,
+        totalEmailsDocuSealSent: 0,
+        parentsEmailsList: [],
+        mailToUrl: '',
+        emailSubject: '',
+        emailBody: '',
+        details: [],
+      };
+    }
+
+    const allInscriptions = this.getInscriptions(voyageId);
+    const targetStatus = filter?.targetStatus || 'all_incomplete';
+    const targetClasse = filter?.classe && filter.classe !== 'Toutes' && filter.classe !== 'ALL' ? filter.classe : null;
+
+    // Filter matching inscriptions
+    const filteredInscriptions = allInscriptions.filter((item) => {
+      if (item.statut === 'COMPLET') return false; // Never remind complete files
+      if (targetStatus === 'a_finaliser' && item.statut !== 'A_FINALISER') return false;
+      if (targetStatus === 'non_signe' && item.statut !== 'NON_SIGNE') return false;
+      if (targetClasse && item.classe !== targetClasse) return false;
+      return true;
+    });
+
+    const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    const docusealBase = voyage.docuseal_url ? normalizeDocuSealUrl(voyage.docuseal_url) : 'https://docuseal.ndmissions.fr';
+    const etablissementName = voyage.etablissement || "L'établissement scolaire Notre Dame des Missions";
+
+    const parentsEmailsSet = new Set<string>();
+    let totalEmailsDocuSealSent = 0;
+    let totalParentsToContact = 0;
+
+    const details: Array<{
+      inscriptionId: string;
+      eleve: string;
+      classe: string;
+      parents: Array<{
+        nom: string;
+        email: string;
+        parentNum: 1 | 2;
+        signingUrl: string;
+        sentViaDocuseal: boolean;
+        docusealMessage?: string;
+      }>;
+    }> = [];
+
+    for (const item of filteredInscriptions) {
+      item.derniere_relance = now;
+      const parentsForStudent: Array<{
+        nom: string;
+        email: string;
+        parentNum: 1 | 2;
+        signingUrl: string;
+        sentViaDocuseal: boolean;
+        docusealMessage?: string;
+      }> = [];
+
+      // Determine unsigned parents
+      const parentsToCheck: Array<{ p: typeof item.parent1; num: 1 | 2 }> = [];
+      if (item.parent1 && item.parent1.statut !== 'signed') {
+        parentsToCheck.push({ p: item.parent1, num: 1 });
+      }
+      if (item.parent2 && item.parent2.statut !== 'signed') {
+        parentsToCheck.push({ p: item.parent2, num: 2 });
+      }
+
+      for (const { p, num } of parentsToCheck) {
+        if (!p.email) continue;
+        totalParentsToContact++;
+        const emailClean = p.email.trim();
+        parentsEmailsSet.add(emailClean);
+
+        const signingUrl = p.slug
+          ? `${docusealBase}/s/${p.slug}`
+          : `${docusealBase}/submissions/${item.docuseal_submission_id}`;
+
+        let sentViaDocuseal = false;
+        let docusealMessage = '';
+
+        if (voyage.docuseal_api_key && p.submitter_id) {
+          try {
+            const putRes = await fetch(`${docusealBase}/api/submitters/${p.submitter_id}`, {
+              method: 'PUT',
+              headers: {
+                'X-Auth-Token': voyage.docuseal_api_key,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ send_email: true }),
+            });
+            if (putRes.ok) {
+              sentViaDocuseal = true;
+              totalEmailsDocuSealSent++;
+              docusealMessage = 'Notification envoyée avec succès par DocuSeal';
+            } else {
+              const errJson: any = await putRes.json().catch(() => ({}));
+              docusealMessage = errJson?.error || `Code HTTP ${putRes.status}`;
+            }
+          } catch (err: any) {
+            docusealMessage = err.message || 'Erreur réseau vers DocuSeal';
+          }
+        }
+
+        parentsForStudent.push({
+          nom: p.nom || 'Responsable légal',
+          email: emailClean,
+          parentNum: num,
+          signingUrl,
+          sentViaDocuseal,
+          docusealMessage,
+        });
+      }
+
+      details.push({
+        inscriptionId: item.id,
+        eleve: `${item.eleve_prenom} ${item.eleve_nom}`,
+        classe: item.classe,
+        parents: parentsForStudent,
+      });
+    }
+
+    const parentsEmailsList = Array.from(parentsEmailsSet);
+
+    this.saveToFile();
+
+    const emailSubject = `[${etablissementName}] Voyage à ${voyage.destination || voyage.nom} — Relance signature inscription`;
+    const emailBody = `Madame, Monsieur,\n\nNous vous informons qu'à ce jour, le dossier d'inscription de votre enfant pour le voyage scolaire à ${voyage.destination || voyage.nom} n'est pas encore entièrement signé.\n\nPour rappel, la signature des deux représentants légaux est requise pour valider définitivement la participation de l'élève.\n\nMerci de bien vouloir vérifier votre boîte de messagerie (et vos spams/indésirables) afin d'accéder au document DocuSeal et d'apposer votre signature électronique dans les meilleurs délais.\n\nEn cas de question ou de difficulté technique, merci de prendre contact avec l'établissement.\n\nBien cordialement,\nL'équipe organisatrice du voyage scolaire\n${etablissementName}`;
+
+    const bccQuery = encodeURIComponent(parentsEmailsList.join(','));
+    const subjectQuery = encodeURIComponent(emailSubject);
+    const bodyQuery = encodeURIComponent(emailBody);
+    const mailToUrl = `mailto:?bcc=${bccQuery}&subject=${subjectQuery}&body=${bodyQuery}`;
+
+    this.addLog({
+      voyage_id: voyageId,
+      voyage_nom: voyage.nom,
+      type: 'manual_sync',
+      status: 'success',
+      message: `Relance en masse pour ${filteredInscriptions.length} élève(s) (${totalParentsToContact} parent(s) ciblés, ${totalEmailsDocuSealSent} envoyés par DocuSeal)`,
+    });
+
+    return {
+      success: true,
+      message: totalEmailsDocuSealSent > 0
+        ? `✓ ${totalEmailsDocuSealSent} notification(s) envoyée(s) directement via DocuSeal sur ${totalParentsToContact} parent(s) ciblés.`
+        : `✓ Relance préparée pour ${totalParentsToContact} parent(s) (${filteredInscriptions.length} élève(s)).`,
+      totalInscriptionsTargeted: filteredInscriptions.length,
+      totalParentsToContact,
+      totalEmailsDocuSealSent,
+      parentsEmailsList,
+      mailToUrl,
+      emailSubject,
+      emailBody,
+      details,
     };
   }
 

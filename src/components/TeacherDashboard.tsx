@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { StudentDetailModal } from './StudentDetailModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
+import { MassRelanceModal } from './MassRelanceModal.js';
 
 interface TeacherDashboardProps {
   voyages: Voyage[];
@@ -56,6 +57,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Modals state
   const [activeStudent, setActiveStudent] = useState<Inscription | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
+  const [showMassRelanceModal, setShowMassRelanceModal] = useState(false);
 
   const currentVoyage = voyages.find((v) => v.id === selectedVoyageId) || voyages[0];
 
@@ -302,6 +304,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <span>{syncing ? 'Synchronisation...' : '🔄 Synchroniser maintenant'}</span>
               </button>
 
+              <button
+                id="btn-quick-relance-masse"
+                onClick={() => setShowMassRelanceModal(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl font-bold shadow-xs transition-all text-xs cursor-pointer"
+                title="Envoyer une relance en masse aux parents des dossiers incomplets"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>📨 Relance en masse</span>
+              </button>
+
               {isAdmin && (
                 <button
                   type="button"
@@ -492,6 +504,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             >
               <FileText className="w-4 h-4 text-slate-600" />
               <span>📄 Exporter PDF</span>
+            </button>
+
+            {/* Relance en masse */}
+            <button
+              id="btn-export-relance-masse"
+              onClick={() => setShowMassRelanceModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              title="Envoyer un email de rappel / relance en masse aux parents"
+            >
+              <Mail className="w-4 h-4 text-amber-700" />
+              <span>Relance en masse</span>
             </button>
           </div>
         </div>
@@ -743,6 +766,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           voyage={currentVoyage}
           inscriptions={inscriptions}
           onClose={() => setShowPdfModal(false)}
+        />
+      )}
+
+      {/* Mass Relance Modal */}
+      {showMassRelanceModal && currentVoyage && (
+        <MassRelanceModal
+          isOpen={showMassRelanceModal}
+          voyage={currentVoyage}
+          inscriptions={inscriptions}
+          classesList={classesList}
+          onClose={() => setShowMassRelanceModal(false)}
+          onSuccess={() => {
+            fetchInscriptions();
+            onRefreshVoyages();
+          }}
         />
       )}
 
