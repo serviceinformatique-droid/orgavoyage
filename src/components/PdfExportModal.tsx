@@ -29,7 +29,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
   onClose,
 }) => {
   const [selectedClasse, setSelectedClasse] = useState<string>('Toutes');
-  const [selectedStatut, setSelectedStatut] = useState<'ALL' | 'COMPLET' | 'A_FINALISER' | 'NON_SIGNE' | 'INCOMPLET'>('ALL');
+  const [selectedStatut, setSelectedStatut] = useState<'ALL' | 'COMPLET' | 'A_FINALISER' | 'DOUBLONS' | 'NON_SIGNE' | 'INCOMPLET'>('ALL');
   const [sortBy, setSortBy] = useState<'nom' | 'classe' | 'statut'>('nom');
   const [includeStats, setIncludeStats] = useState<boolean>(true);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -66,6 +66,16 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
       list = list.filter((i) => i.statut === 'COMPLET');
     } else if (selectedStatut === 'A_FINALISER') {
       list = list.filter((i) => i.statut === 'A_FINALISER');
+    } else if (selectedStatut === 'DOUBLONS') {
+      const counts = new Map<string, number>();
+      for (const item of inscriptions) {
+        const k = `${(item.eleve_nom || '').trim().toLowerCase()}___${(item.eleve_prenom || '').trim().toLowerCase()}`;
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+      list = list.filter((i) => {
+        const k = `${(i.eleve_nom || '').trim().toLowerCase()}___${(i.eleve_prenom || '').trim().toLowerCase()}`;
+        return (counts.get(k) || 0) > 1;
+      });
     } else if (selectedStatut === 'NON_SIGNE') {
       list = list.filter((i) => i.statut === 'NON_SIGNE');
     } else if (selectedStatut === 'INCOMPLET') {
@@ -250,6 +260,7 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
                   <option value="ALL">Tous les statuts</option>
                   <option value="COMPLET">🟢 Complets (2/2) uniquement</option>
                   <option value="A_FINALISER">🟠 À finaliser (1/2) uniquement</option>
+                  <option value="DOUBLONS">⚠️ Doublons (même nom et prénom)</option>
                   <option value="NON_SIGNE">🔴 Non signés (0/2) uniquement</option>
                   <option value="INCOMPLET">⚠️ Tous les dossiers incomplets</option>
                 </select>

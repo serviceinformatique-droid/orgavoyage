@@ -26,10 +26,14 @@ import {
   Eye,
   EyeOff,
   Mail,
-  FileText
+  FileText,
+  Calculator,
+  UserX,
 } from 'lucide-react';
 import { MassRelanceModal } from './MassRelanceModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
+import { ConsultationPasswordModal } from './ConsultationPasswordModal.js';
+import { PurgeStudentsModal } from './PurgeStudentsModal.js';
 
 interface AdminDocuSealManagerProps {
   voyages: Voyage[];
@@ -58,6 +62,11 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
   const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordModalError, setPasswordModalError] = useState<string | null>(null);
+
+  // Consultation Password & Purge modals state
+  const [showConsultationPasswordModal, setShowConsultationPasswordModal] = useState(false);
+  const [showPurgeStudentsModal, setShowPurgeStudentsModal] = useState(false);
+  const [purgeTargetVoyageId, setPurgeTargetVoyageId] = useState<string | undefined>(undefined);
 
   // Testing & sync states
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -591,6 +600,17 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
             </button>
 
             <button
+              id="btn-admin-consultation-pwd"
+              type="button"
+              onClick={() => setShowConsultationPasswordModal(true)}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-sky-950/80 hover:bg-sky-900 text-sky-200 hover:text-white rounded-xl text-xs font-bold border border-sky-700/80 shadow-xs transition-all"
+              title="Configurer le mot de passe de consultation pour la comptable"
+            >
+              <Calculator className="w-4 h-4 text-sky-400" />
+              <span>Mot de passe Comptable</span>
+            </button>
+
+            <button
               id="btn-admin-change-pwd"
               type="button"
               onClick={() => {
@@ -630,13 +650,16 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                 </button>
 
                 <button
-                  id="btn-admin-reset-db"
-                  onClick={handleResetDatabase}
+                  id="btn-admin-purge-students"
+                  onClick={() => {
+                    setPurgeTargetVoyageId(undefined);
+                    setShowPurgeStudentsModal(true);
+                  }}
                   className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800/80 hover:bg-rose-950/80 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-800 rounded-xl text-xs font-bold transition-all"
-                  title="Vider la base de données et effacer les élèves d'exemple"
+                  title="Supprimer les élèves fictifs / d'exemple"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Purger la base</span>
+                  <span>Purger les élèves fictifs</span>
                 </button>
               </>
             )}
@@ -926,6 +949,17 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                     title="Exporter la liste officielle en PDF"
                   >
                     <FileText className={`w-4 h-4 ${loadingPdfId === v.id ? 'animate-bounce' : ''}`} />
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setPurgeTargetVoyageId(v.id);
+                      setShowPurgeStudentsModal(true);
+                    }}
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
+                    title={`Purger les élèves fictifs de "${v.nom}"`}
+                  >
+                    <UserX className="w-4 h-4" />
                   </button>
 
                   <button
@@ -1637,6 +1671,34 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
           onClose={() => setExportPdfVoyage(null)}
         />
       )}
+
+      {/* Consultation / Accountant Password Modal */}
+      <ConsultationPasswordModal
+        isOpen={showConsultationPasswordModal}
+        onClose={() => setShowConsultationPasswordModal(false)}
+        adminToken={adminToken}
+        onSuccessNotice={(msg) => {
+          setActionNotice({ type: 'success', message: msg });
+          setTimeout(() => setActionNotice(null), 5000);
+        }}
+      />
+
+      {/* Purge Students Modal */}
+      <PurgeStudentsModal
+        isOpen={showPurgeStudentsModal}
+        onClose={() => setShowPurgeStudentsModal(false)}
+        voyages={voyages}
+        selectedVoyageId={purgeTargetVoyageId}
+        adminToken={adminToken}
+        onSuccess={() => {
+          onRefreshVoyages();
+          setActionNotice({
+            type: 'success',
+            message: '✓ Dossiers fictifs purgés avec succès. La base est prête pour la synchronisation réelle.',
+          });
+          setTimeout(() => setActionNotice(null), 5000);
+        }}
+      />
     </div>
   );
 };

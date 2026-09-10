@@ -1,12 +1,14 @@
 import React from 'react';
-import { Compass, Shield, Users, FileText, Lock, LogOut } from 'lucide-react';
+import { Compass, Shield, Users, FileText, Lock, LogOut, Calculator, Eye } from 'lucide-react';
 
 interface HeaderProps {
   currentTab: 'teacher' | 'admin' | 'logs';
   onTabChange: (tab: 'teacher' | 'admin' | 'logs') => void;
   isAdmin: boolean;
+  isConsultation?: boolean;
   onAdminLoginClick: () => void;
   onLogoutAdmin: () => void;
+  onLogoutConsultation?: () => void;
   totalTripsCount: number;
 }
 
@@ -14,8 +16,10 @@ export const Header: React.FC<HeaderProps> = ({
   currentTab,
   onTabChange,
   isAdmin,
+  isConsultation,
   onAdminLoginClick,
   onLogoutAdmin,
+  onLogoutConsultation,
   totalTripsCount,
 }) => {
   return (
@@ -55,8 +59,12 @@ export const Header: React.FC<HeaderProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Users className="w-4 h-4 text-indigo-600" />
-                <span>Espace Professeur</span>
+                {isConsultation ? (
+                  <Eye className="w-4 h-4 text-sky-600" />
+                ) : (
+                  <Users className="w-4 h-4 text-indigo-600" />
+                )}
+                <span>{isConsultation ? 'Consultation Comptable (Tous Voyages)' : 'Espace Professeur'}</span>
               </button>
 
               <button
@@ -112,14 +120,29 @@ export const Header: React.FC<HeaderProps> = ({
                     <LogOut className="w-4 h-4" />
                   </button>
                 </div>
+              ) : isConsultation ? (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 text-sky-800 border border-sky-200">
+                    <Calculator className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Comptable (Consultation)</span>
+                  </span>
+                  <button
+                    onClick={onLogoutConsultation}
+                    title="Quitter le mode consultation"
+                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
               ) : (
                 <button
                   id="btn-header-admin-login"
                   onClick={onAdminLoginClick}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-xs transition-all"
+                  title="Accès Administrateur ou Consultation Comptable"
                 >
                   <Lock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Accès Admin</span>
+                  <span>Accès Admin / Comptable</span>
                 </button>
               )}
             </div>
@@ -132,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => onTabChange('teacher')}
             className={`text-xs font-bold px-3 py-1 rounded-lg ${currentTab === 'teacher' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600'}`}
           >
-            Professeur
+            {isConsultation ? 'Comptabilité' : 'Professeur'}
           </button>
           <button
             onClick={() => {

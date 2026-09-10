@@ -4,7 +4,7 @@ import { Inscription, Voyage } from '../types.js';
 
 export interface PdfExportOptions {
   filterClasse?: string;
-  filterStatut?: 'ALL' | 'COMPLET' | 'A_FINALISER' | 'NON_SIGNE' | 'INCOMPLET';
+  filterStatut?: 'ALL' | 'COMPLET' | 'A_FINALISER' | 'DOUBLONS' | 'NON_SIGNE' | 'INCOMPLET';
   sortBy?: 'nom' | 'classe' | 'statut';
   includeStats?: boolean;
 }
@@ -32,6 +32,16 @@ export function generateInscriptionsPdf(
     filtered = filtered.filter((i) => i.statut === 'COMPLET');
   } else if (filterStatut === 'A_FINALISER') {
     filtered = filtered.filter((i) => i.statut === 'A_FINALISER');
+  } else if (filterStatut === 'DOUBLONS') {
+    const counts = new Map<string, number>();
+    for (const item of inscriptions) {
+      const k = `${(item.eleve_nom || '').trim().toLowerCase()}___${(item.eleve_prenom || '').trim().toLowerCase()}`;
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    filtered = filtered.filter((i) => {
+      const k = `${(i.eleve_nom || '').trim().toLowerCase()}___${(i.eleve_prenom || '').trim().toLowerCase()}`;
+      return (counts.get(k) || 0) > 1;
+    });
   } else if (filterStatut === 'NON_SIGNE') {
     filtered = filtered.filter((i) => i.statut === 'NON_SIGNE');
   } else if (filterStatut === 'INCOMPLET') {

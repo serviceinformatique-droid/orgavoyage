@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Voyage, Inscription } from '../types.js';
 import {
   Search,
@@ -18,7 +18,10 @@ import {
   ChevronDown,
   Lock,
   KeyRound,
-  Trash2
+  Trash2,
+  Copy,
+  ArrowUpDown,
+  Calculator,
 } from 'lucide-react';
 import { StudentDetailModal } from './StudentDetailModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
@@ -33,6 +36,8 @@ interface TeacherDashboardProps {
   onRequestUnlock?: () => void;
   onLockVoyage?: () => void;
   isAdmin?: boolean;
+  isConsultation?: boolean;
+  consultationToken?: string;
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -44,13 +49,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onRequestUnlock,
   onLockVoyage,
   isAdmin,
+  isConsultation,
+  consultationToken,
 }) => {
   const [inscriptions, setInscriptions] = useState<Inscription[]>([]);
+  const [allTripInscriptions, setAllTripInscriptions] = useState<Inscription[]>([]);
   const [loading, setLoading] = useState(false);
   const [isLockedByPassword, setIsLockedByPassword] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClasse, setSelectedClasse] = useState('Toutes');
   const [selectedStatut, setSelectedStatut] = useState('Tous');
+  const [sortColumn, setSortColumn] = useState<'nom' | 'classe' | 'statut'>('nom');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [syncing, setSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -61,7 +71,32 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const currentVoyage = voyages.find((v) => v.id === selectedVoyageId) || voyages[0];
 
-  // Fetch inscriptions for current trip
+  // Fetch full trip inscriptions (unfiltered) for duplicates detection and modal context
+  const fetchAllTripInscriptions = async () => {
+    if (!currentVoyage) return;
+    try {
+      const headers: Record<string, string> = {};
+      if (voyagePassword) headers['x-voyage-password'] = voyagePassword;
+      const adminToken = sessionStorage.getItem('ndm_admin_token');
+      if (isAdmin && adminToken) headers['x-admin-token'] = adminToken;
+      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      if (isConsultation && cToken) headers['x-consultation-token'] = cToken;
+
+      const res = await fetch(`/api/voyages/${currentVoyage.id}/inscriptions`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setAllTripInscriptions(data);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    fetchAllTripInscriptions();
+  }, [selectedVoyageId, voyagePassword, isAdmin, isConsultation, consultationToken]);
+
+  // Fetch inscriptions for current trip according to user filters
   const fetchInscriptions = async () => {
     if (!currentVoyage) return;
     setLoading(true);
@@ -78,6 +113,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       const adminToken = sessionStorage.getItem('ndm_admin_token');
       if (isAdmin && adminToken) {
         headers['x-admin-token'] = adminToken;
+      }
+      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      if (isConsultation && cToken) {
+        headers['x-consultation-token'] = cToken;
       }
 
       const res = await fetch(`/api/voyages/${currentVoyage.id}/inscriptions?${params.toString()}`, {
@@ -101,7 +140,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   useEffect(() => {
     fetchInscriptions();
-  }, [selectedVoyageId, searchQuery, selectedClasse, selectedStatut, voyagePassword, isAdmin]);
+  }, [selectedVoyageId, searchQuery, selectedClasse, selectedStatut, voyagePassword, isAdmin, isConsultation, consultationToken]);
 
   // Synchronize now
   const handleSyncNow = async () => {
@@ -173,7 +212,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const handleExportExcel = () => {
     if (!currentVoyage) return;
-    if (currentVoyage.has_password && !isAdmin && !voyagePassword) {
+    if (currentVoyage.has_password && !isAdmin && !isConsultation && !voyagePassword) {
       if (onRequestUnlock) onRequestUnlock();
       return;
     }
@@ -181,6 +220,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     if (voyagePassword) params.append('password', voyagePassword);
     const token = sessionStorage.getItem('ndm_admin_token');
     if (isAdmin && token) params.append('adminToken', token);
+    const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+    if (isConsultation && cToken) params.append('consultationToken', cToken);
     const queryStr = params.toString() ? `?${params.toString()}` : '';
     window.location.href = `/api/voyages/${currentVoyage.id}/export/excel${queryStr}`;
   };
@@ -200,6 +241,69 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const classesList = ['Toutes', ...Array.from(new Set([...configuredClasses, ...extractedClasses])).sort()];
 
+  // Normalized key helper for matching duplicates
+  const normalizeKey = (nom?: string, prenom?: string) => {
+    const cleanNom = (nom || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+    const cleanPrenom = (prenom || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+    if (!cleanNom && !cleanPrenom) return '';
+    return `${cleanNom}___${cleanPrenom}`;
+  };
+
+  // Set of normalized keys of students with identical last name and first name in the trip
+  const duplicateNameKeys = useMemo(() => {
+    const listToScan = allTripInscriptions.length > 0 ? allTripInscriptions : inscriptions;
+    const counts = new Map<string, number>();
+    for (const item of listToScan) {
+      const key = normalizeKey(item.eleve_nom, item.eleve_prenom);
+      if (key) {
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+    const dupes = new Set<string>();
+    for (const [key, count] of counts.entries()) {
+      if (count > 1) dupes.add(key);
+    }
+    return dupes;
+  }, [allTripInscriptions, inscriptions]);
+
+  // Total count of duplicate inscriptions in the trip
+  const totalDoublonsCount = useMemo(() => {
+    if (typeof currentVoyage?.total_doublons === 'number') {
+      return currentVoyage.total_doublons;
+    }
+    const listToScan = allTripInscriptions.length > 0 ? allTripInscriptions : inscriptions;
+    return listToScan.filter((item) => {
+      const key = normalizeKey(item.eleve_nom, item.eleve_prenom);
+      return duplicateNameKeys.has(key);
+    }).length;
+  }, [currentVoyage?.total_doublons, allTripInscriptions, inscriptions, duplicateNameKeys]);
+
+  // Alphabetical sorting of students (last name ASC, then first name ASC)
+  const sortedInscriptions = useMemo(() => {
+    const list = [...inscriptions];
+    list.sort((a, b) => {
+      if (sortColumn === 'classe') {
+        const cmp = (a.classe || '').localeCompare(b.classe || '', 'fr', { numeric: true });
+        if (cmp !== 0) return sortDirection === 'asc' ? cmp : -cmp;
+      } else if (sortColumn === 'statut') {
+        const order: Record<string, number> = { COMPLET: 0, A_FINALISER: 1, NON_SIGNE: 2 };
+        const diff = (order[a.statut] ?? 3) - (order[b.statut] ?? 3);
+        if (diff !== 0) return sortDirection === 'asc' ? diff : -diff;
+      }
+      // Default: Alphabetical order by student last name ASC then first name ASC
+      const nomA = (a.eleve_nom || '').trim();
+      const nomB = (b.eleve_nom || '').trim();
+      const cmpNom = nomA.localeCompare(nomB, 'fr', { sensitivity: 'base', numeric: true });
+      if (cmpNom !== 0) return sortDirection === 'asc' ? cmpNom : -cmpNom;
+      const prenomA = (a.eleve_prenom || '').trim();
+      const prenomB = (b.eleve_prenom || '').trim();
+      return sortDirection === 'asc'
+        ? prenomA.localeCompare(prenomB, 'fr', { sensitivity: 'base', numeric: true })
+        : prenomB.localeCompare(prenomA, 'fr', { sensitivity: 'base', numeric: true });
+    });
+    return list;
+  }, [inscriptions, sortColumn, sortDirection]);
+
   if (voyages.length === 0) {
     return (
       <div className="bg-white rounded-2xl border-2 border-dashed border-slate-300 p-12 text-center my-8">
@@ -208,14 +312,61 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         </div>
         <h3 className="text-xl font-bold text-slate-900">Aucun voyage scolaire configuré</h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto mt-2 leading-relaxed">
-          La base de démonstration a été effacée. Pour commencer à suivre les signatures de vos élèves, connectez-vous à l'espace <strong>Administration DocuSeal</strong> pour configurer vos voyages et vos clés API.
+          La base de démonstration a été effacée. Vous pouvez créer un voyage depuis l'Administration DocuSeal ou charger le voyage test avec élèves et doublons.
         </p>
+        <button
+          type="button"
+          id="btn-seed-demo-quick"
+          onClick={async () => {
+            try {
+              await fetch('/api/admin/seed-demo', { method: 'POST' });
+              onRefreshVoyages();
+            } catch (err) {
+              console.error(err);
+            }
+          }}
+          className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
+        >
+          <span>⚡ Charger le voyage de test (Londres avec élèves et doublons)</span>
+        </button>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Consultation Banner for Accountant */}
+      {isConsultation && (
+        <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <Calculator className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-sky-900">
+                  Accès Consultation Comptabilité
+                </span>
+                <span className="text-[10px] font-extrabold bg-sky-200 text-sky-900 px-2 py-0.5 rounded-full">
+                  Lecture seule
+                </span>
+              </div>
+              <p className="text-xs text-sky-900 mt-1 leading-relaxed">
+                Vous visualisez l'ensemble des <strong>{voyages.length} voyages scolaires</strong> et la liste complète de tous les élèves inscrits. Le menu déroulant ci-dessous vous permet de basculer instantanément d'un voyage à un autre.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs shrink-0 transition-all cursor-pointer"
+            title="Télécharger l'export Excel du voyage sélectionné"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Télécharger l'Export Excel</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Banner: Voyage Selector & Quick Info */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -237,7 +388,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               >
                 {voyages.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.has_password ? '🔒 ' : ''}{v.nom} ({v.total_complets}/{v.total_inscrits})
+                    {v.has_password && !isConsultation ? '🔒 ' : ''}{v.nom} ({v.total_complets}/{v.total_inscrits})
                   </option>
                 ))}
               </select>
@@ -261,17 +412,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
               {currentVoyage.has_password && (
                 <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-medium ${
-                  isLockedByPassword || (!voyagePassword && !isAdmin)
+                  isConsultation
+                    ? 'bg-sky-50 text-sky-800 border-sky-200'
+                    : isLockedByPassword || (!voyagePassword && !isAdmin)
                     ? 'bg-amber-100/80 text-amber-900 border-amber-300'
                     : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                 }`}>
-                  <Lock className="w-3.5 h-3.5" />
+                  {isConsultation ? (
+                    <Eye className="w-3.5 h-3.5 text-sky-600" />
+                  ) : (
+                    <Lock className="w-3.5 h-3.5" />
+                  )}
                   <span>
-                    {isLockedByPassword || (!voyagePassword && !isAdmin)
+                    {isConsultation
+                      ? 'Consultation Déverrouillée'
+                      : isLockedByPassword || (!voyagePassword && !isAdmin)
                       ? 'Accès Verrouillé'
                       : 'Accès Déverrouillé'}
                   </span>
-                  {(isLockedByPassword || (!voyagePassword && !isAdmin)) && onRequestUnlock && (
+                  {!isConsultation && (isLockedByPassword || (!voyagePassword && !isAdmin)) && onRequestUnlock && (
                     <button
                       onClick={onRequestUnlock}
                       className="ml-1 text-xs font-bold underline text-amber-900 hover:text-indigo-900"
@@ -279,7 +438,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       (Déverrouiller)
                     </button>
                   )}
-                  {voyagePassword && !isAdmin && onLockVoyage && (
+                  {!isConsultation && voyagePassword && !isAdmin && onLockVoyage && (
                     <button
                       onClick={onLockVoyage}
                       className="ml-1 text-[11px] underline text-slate-500 hover:text-slate-800"
@@ -340,13 +499,28 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         )}
       </div>
 
-      {/* 3 Prominent Metric Cards (Section 7: 10 seconds understanding) */}
+      {/* 5 Prominent Metric Cards (With Clickable Doublons Filter) */}
       {currentVoyage && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Card: Inscrits */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Total Inscrits
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+          {/* Card 1: Total Dossiers */}
+          <button
+            type="button"
+            id="card-filter-tous"
+            onClick={() => setSelectedStatut('Tous')}
+            className={`text-left rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between transition-all cursor-pointer border ${
+              selectedStatut === 'Tous'
+                ? 'bg-slate-100 border-slate-400 ring-2 ring-slate-500 shadow-sm'
+                : 'bg-white border-slate-200 hover:bg-slate-50'
+            }`}
+            title="Cliquer pour afficher tous les élèves"
+          >
+            <div className="text-xs font-extrabold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+              <span>Total Inscrits</span>
+              {selectedStatut === 'Tous' && (
+                <span className="text-[10px] font-bold bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded">
+                  Tous
+                </span>
+              )}
             </div>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
@@ -355,15 +529,32 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <span className="text-xs font-semibold text-slate-400">élèves</span>
             </div>
             <div className="text-[11px] text-slate-500 mt-2">
-              Dossiers créés dans DocuSeal
+              Dossiers DocuSeal
             </div>
-          </div>
+          </button>
 
-          {/* Card: Complets (🟢 2/2) */}
-          <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
-            <div className="text-xs font-extrabold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Inscriptions Complètes</span>
+          {/* Card 2: Complets (🟢 2/2) */}
+          <button
+            type="button"
+            id="card-filter-complets"
+            onClick={() => setSelectedStatut(selectedStatut === 'COMPLET' ? 'Tous' : 'COMPLET')}
+            className={`text-left rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between transition-all cursor-pointer border ${
+              selectedStatut === 'COMPLET'
+                ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-500 shadow-sm'
+                : 'bg-emerald-50/70 border-emerald-200 hover:bg-emerald-100/60'
+            }`}
+            title="Cliquer pour filtrer les dossiers complets (2/2 signatures)"
+          >
+            <div className="text-xs font-extrabold text-emerald-800 uppercase tracking-wider flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Complètes</span>
+              </div>
+              {selectedStatut === 'COMPLET' && (
+                <span className="text-[10px] font-bold bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded">
+                  Actif
+                </span>
+              )}
             </div>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-3xl sm:text-4xl font-black text-emerald-700 tracking-tight">
@@ -375,16 +566,33 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
             <div className="text-[11px] text-emerald-700 font-medium mt-2">
               {currentVoyage.total_inscrits > 0
-                ? `${Math.round((currentVoyage.total_complets / currentVoyage.total_inscrits) * 100)}% des familles au complet`
+                ? `${Math.round((currentVoyage.total_complets / currentVoyage.total_inscrits) * 100)}% au complet`
                 : 'Aucun inscrit'}
             </div>
-          </div>
+          </button>
 
-          {/* Card: À Finaliser (🟠 1/2) */}
-          <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
-            <div className="text-xs font-extrabold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-              <span>À Finaliser</span>
+          {/* Card 3: À Finaliser (🟠 1/2) */}
+          <button
+            type="button"
+            id="card-filter-afinaliser"
+            onClick={() => setSelectedStatut(selectedStatut === 'A_FINALISER' ? 'Tous' : 'A_FINALISER')}
+            className={`text-left rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between transition-all cursor-pointer border ${
+              selectedStatut === 'A_FINALISER'
+                ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-500 shadow-sm'
+                : 'bg-amber-50/70 border-amber-200 hover:bg-amber-100/60'
+            }`}
+            title="Cliquer pour filtrer les dossiers à finaliser (1/2 signature)"
+          >
+            <div className="text-xs font-extrabold text-amber-800 uppercase tracking-wider flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span>À Finaliser</span>
+              </div>
+              {selectedStatut === 'A_FINALISER' && (
+                <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded">
+                  Actif
+                </span>
+              )}
             </div>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-3xl sm:text-4xl font-black text-amber-700 tracking-tight">
@@ -395,15 +603,70 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </span>
             </div>
             <div className="text-[11px] text-amber-700 font-medium mt-2">
-              1 signature manquante (à relancer)
+              1 signature manquante
             </div>
-          </div>
+          </button>
 
-          {/* Card: Non Signés (🔴 0/2) */}
-          <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
-            <div className="text-xs font-extrabold text-rose-800 uppercase tracking-wider flex items-center gap-1.5">
-              <XCircle className="w-4 h-4 text-rose-600" />
-              <span>Non Signés</span>
+          {/* Card 4 (NOUVEAU): Doublons (⚠️ Même nom et prénom) - Positionné entre À finaliser et Non signés */}
+          <button
+            type="button"
+            id="card-filter-doublons"
+            onClick={() => setSelectedStatut(selectedStatut === 'DOUBLONS' ? 'Tous' : 'DOUBLONS')}
+            className={`text-left rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between transition-all cursor-pointer border ${
+              selectedStatut === 'DOUBLONS'
+                ? 'bg-purple-100/95 border-purple-400 ring-2 ring-purple-500 shadow-sm'
+                : 'bg-purple-50/70 border-purple-200 hover:bg-purple-100/70'
+            }`}
+            title="Cliquer pour faire remonter la liste des élèves dont le nom et le prénom sont identiques"
+          >
+            <div className="text-xs font-extrabold text-purple-800 uppercase tracking-wider flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Copy className="w-4 h-4 text-purple-600" />
+                <span>Doublons</span>
+              </div>
+              {selectedStatut === 'DOUBLONS' && (
+                <span className="text-[10px] font-bold bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded">
+                  Actif
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span className="text-3xl sm:text-4xl font-black text-purple-700 tracking-tight">
+                {totalDoublonsCount}
+              </span>
+              <span className="text-xs font-extrabold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md">
+                ⚠️ {totalDoublonsCount} dossier{totalDoublonsCount > 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="text-[11px] text-purple-700 font-medium mt-2">
+              {totalDoublonsCount > 0
+                ? 'Mêmes nom/prénom (cliquer)'
+                : 'Aucun doublon'}
+            </div>
+          </button>
+
+          {/* Card 5: Non Signés (🔴 0/2) */}
+          <button
+            type="button"
+            id="card-filter-nonsignes"
+            onClick={() => setSelectedStatut(selectedStatut === 'NON_SIGNE' ? 'Tous' : 'NON_SIGNE')}
+            className={`text-left rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between transition-all cursor-pointer border ${
+              selectedStatut === 'NON_SIGNE'
+                ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-500 shadow-sm'
+                : 'bg-rose-50/70 border-rose-200 hover:bg-rose-100/60'
+            }`}
+            title="Cliquer pour filtrer les dossiers non signés (0/2 signature)"
+          >
+            <div className="text-xs font-extrabold text-rose-800 uppercase tracking-wider flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <XCircle className="w-4 h-4 text-rose-600" />
+                <span>Non Signés</span>
+              </div>
+              {selectedStatut === 'NON_SIGNE' && (
+                <span className="text-[10px] font-bold bg-rose-200 text-rose-900 px-1.5 py-0.5 rounded">
+                  Actif
+                </span>
+              )}
             </div>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-3xl sm:text-4xl font-black text-rose-700 tracking-tight">
@@ -414,9 +677,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </span>
             </div>
             <div className="text-[11px] text-rose-700 font-medium mt-2">
-              Aucune signature reçue
+              Aucune signature
             </div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -455,7 +718,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 id="select-filter-classe"
                 value={selectedClasse}
                 onChange={(e) => setSelectedClasse(e.target.value)}
-                className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 <option value="Toutes">Toutes les classes</option>
                 {classesList.map((c) => (
@@ -466,18 +729,19 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </select>
             </div>
 
-            {/* Statut filter */}
+            {/* Statut filter: includes Doublons between A_FINALISER and NON_SIGNE */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-slate-500 uppercase">Statut :</span>
               <select
                 id="select-filter-statut"
                 value={selectedStatut}
                 onChange={(e) => setSelectedStatut(e.target.value)}
-                className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 <option value="Tous">Tous les statuts</option>
                 <option value="COMPLET">🟢 Complets (2/2)</option>
                 <option value="A_FINALISER">🟠 À finaliser (1/2)</option>
+                <option value="DOUBLONS">⚠️ Doublons ({totalDoublonsCount})</option>
                 <option value="NON_SIGNE">🔴 Non signés (0/2)</option>
               </select>
             </div>
@@ -522,7 +786,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         {/* Student list summary count */}
         <div className="text-xs text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
           <span>
-            Affichage de <strong>{inscriptions.length}</strong> élève(s) correspondant aux filtres
+            Affichage de <strong>{sortedInscriptions.length}</strong> élève(s) correspondant aux filtres
+            {selectedStatut === 'DOUBLONS' && (
+              <span className="ml-2 font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                Filtre Doublons actif
+              </span>
+            )}
           </span>
           {currentVoyage?.last_sync_at && (
             <span className="font-mono text-[11px]">
@@ -530,6 +799,24 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </span>
           )}
         </div>
+
+        {selectedStatut === 'DOUBLONS' && (
+          <div className="p-3 bg-purple-50 border border-purple-200 text-purple-900 rounded-xl text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Copy className="w-4 h-4 text-purple-600 shrink-0" />
+              <span>
+                Affichage ciblé : <strong>Élèves en doublon</strong> (nom et prénom identiques dans ce voyage).
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedStatut('Tous')}
+              className="text-xs font-bold text-purple-700 hover:text-purple-900 underline cursor-pointer"
+            >
+              Afficher tous les statuts
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Student List Table */}
@@ -538,10 +825,61 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
-                <th className="py-3 px-4">Élève</th>
-                <th className="py-3 px-3 text-center">Classe</th>
+                <th
+                  className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                  onClick={() => {
+                    if (sortColumn === 'nom') {
+                      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      setSortColumn('nom');
+                      setSortDirection('asc');
+                    }
+                  }}
+                  title="Trier par ordre alphabétique"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Élève</span>
+                    <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">
+                      {sortColumn === 'nom' ? (sortDirection === 'asc' ? 'A → Z' : 'Z → A') : 'A-Z'}
+                    </span>
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  </div>
+                </th>
+                <th
+                  className="py-3 px-3 text-center cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                  onClick={() => {
+                    if (sortColumn === 'classe') {
+                      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      setSortColumn('classe');
+                      setSortDirection('asc');
+                    }
+                  }}
+                  title="Trier par classe"
+                >
+                  <div className="inline-flex items-center gap-1">
+                    <span>Classe</span>
+                    {sortColumn === 'classe' && <span className="text-[10px] text-indigo-600">●</span>}
+                  </div>
+                </th>
                 <th className="py-3 px-3 text-center">Signatures</th>
-                <th className="py-3 px-3">Statut</th>
+                <th
+                  className="py-3 px-3 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                  onClick={() => {
+                    if (sortColumn === 'statut') {
+                      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      setSortColumn('statut');
+                      setSortDirection('asc');
+                    }
+                  }}
+                  title="Trier par statut"
+                >
+                  <div className="inline-flex items-center gap-1">
+                    <span>Statut</span>
+                    {sortColumn === 'statut' && <span className="text-[10px] text-indigo-600">●</span>}
+                  </div>
+                </th>
                 <th className="py-3 px-4">Parent 1</th>
                 <th className="py-3 px-4">Parent 2</th>
                 <th className="py-3 px-4 text-right">Actions</th>
@@ -579,36 +917,62 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   </td>
                 </tr>
-              ) : inscriptions.length === 0 ? (
+              ) : sortedInscriptions.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-400">
-                    <div className="text-sm font-semibold">Aucun élève ne correspond à votre recherche.</div>
-                    <div className="text-xs text-slate-400 mt-1">Modifiez vos filtres de recherche ou sélectionnez une autre classe.</div>
+                    <div className="text-sm font-semibold">
+                      {selectedStatut === 'DOUBLONS'
+                        ? 'Aucun élève en doublon détecté pour ce voyage.'
+                        : 'Aucun élève ne correspond à votre recherche.'}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      {selectedStatut === 'DOUBLONS'
+                        ? 'Tous les noms et prénoms d\'élèves inscrits sont uniques.'
+                        : 'Modifiez vos filtres de recherche ou sélectionnez une autre classe.'}
+                    </div>
                   </td>
                 </tr>
               ) : (
-                inscriptions.map((eleve) => {
+                sortedInscriptions.map((eleve) => {
                   const p1Signed = eleve.parent1.statut === 'signed';
                   const p2Signed = eleve.parent2.statut === 'signed';
+                  const isDuplicate = duplicateNameKeys.has(normalizeKey(eleve.eleve_nom, eleve.eleve_prenom));
 
                   return (
                     <tr
                       key={eleve.id}
                       onClick={() => setActiveStudent(eleve)}
-                      className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
+                      className={`hover:bg-slate-50/80 cursor-pointer transition-colors group ${
+                        isDuplicate ? 'bg-purple-50/20' : ''
+                      }`}
                     >
                       {/* Student Name */}
                       <td className="py-3.5 px-4 font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-black shrink-0 border border-slate-200">
+                          <span
+                            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black shrink-0 border ${
+                              isDuplicate
+                                ? 'bg-purple-100 text-purple-800 border-purple-300'
+                                : 'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}
+                          >
                             {eleve.eleve_nom.startsWith('DOSSIER') ? '#' : `${eleve.eleve_prenom.charAt(0)}${eleve.eleve_nom.charAt(0)}`}
                           </span>
                           <div>
-                            <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                            <div className="font-extrabold text-slate-900 flex items-center gap-1.5 flex-wrap">
                               <span>{eleve.eleve_nom} {eleve.eleve_prenom !== '(En attente)' ? eleve.eleve_prenom : ''}</span>
                               {eleve.eleve_prenom === '(En attente)' && (
                                 <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
                                   En attente saisie
+                                </span>
+                              )}
+                              {isDuplicate && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 px-1.5 py-0.5 rounded-md"
+                                  title="Attention : Un autre dossier existe avec le même nom et le même prénom pour ce voyage"
+                                >
+                                  <Copy className="w-3 h-3 text-purple-600" />
+                                  Doublon
                                 </span>
                               )}
                             </div>
@@ -752,6 +1116,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         <StudentDetailModal
           inscription={activeStudent}
           voyage={currentVoyage}
+          allInscriptions={allTripInscriptions.length > 0 ? allTripInscriptions : inscriptions}
           onClose={() => setActiveStudent(null)}
           onRelanceSent={() => {
             fetchInscriptions();
@@ -764,7 +1129,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       {showPdfModal && currentVoyage && (
         <PdfExportModal
           voyage={currentVoyage}
-          inscriptions={inscriptions}
+          inscriptions={allTripInscriptions.length > 0 ? allTripInscriptions : inscriptions}
           classesList={classesList}
           onClose={() => setShowPdfModal(false)}
         />

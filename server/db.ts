@@ -9,6 +9,7 @@ interface DatabaseData {
   inscriptions: Record<string, Inscription[]>; // voyage_id -> Inscriptions
   logs: SyncLogEntry[];
   adminPasswordHash: string; // 'Gafa8432'
+  consultationPassword?: string; // 'Compta2027' by default
 }
 
 // Helper to extract all key-value pairs from DocuSeal submissions and submitters
@@ -114,6 +115,49 @@ export function normalizeDocuSealUrl(url: string): string {
   }
 }
 
+// Utility helpers for duplicate student detection and name normalization
+export function normalizeStudentKey(nom?: string, prenom?: string): string {
+  const cleanNom = (nom || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+  const cleanPrenom = (prenom || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+  if (!cleanNom && !cleanPrenom) return '';
+  return `${cleanNom}___${cleanPrenom}`;
+}
+
+export function getDuplicateStudentKeys(list: Inscription[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const item of list) {
+    const key = normalizeStudentKey(item.eleve_nom, item.eleve_prenom);
+    if (key) {
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  const duplicateKeys = new Set<string>();
+  for (const [key, count] of counts.entries()) {
+    if (count > 1) {
+      duplicateKeys.add(key);
+    }
+  }
+  return duplicateKeys;
+}
+
+export function countDoublons(list: Inscription[]): number {
+  const duplicateKeys = getDuplicateStudentKeys(list);
+  return list.filter((i) => {
+    const key = normalizeStudentKey(i.eleve_nom, i.eleve_prenom);
+    return duplicateKeys.has(key);
+  }).length;
+}
+
 // In-memory Database instance with disk persistence
 export class Database {
   private data: DatabaseData;
@@ -137,11 +181,16 @@ export class Database {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.voyages) && parsed.inscriptions) {
           this.data = parsed;
+          let changed = false;
           if (!this.data.adminPasswordHash) {
             this.data.adminPasswordHash = 'Gafa8432';
+            changed = true;
+          }
+          if (!this.data.consultationPassword) {
+            this.data.consultationPassword = 'Compta2027';
+            changed = true;
           }
           // Normalize establishment to "L'établissement scolaire Notre Dame des Missions"
-          let changed = false;
           this.data.voyages.forEach((v) => {
             if (!v.etablissement || v.etablissement === 'Établissement Scolaire' || v.etablissement === 'Établissement scolaire') {
               v.etablissement = "L'établissement scolaire Notre Dame des Missions";
@@ -165,7 +214,7 @@ export class Database {
       return;
     }
 
-    // Clean, empty initial production state (no mock or fake data)
+    // Initialize with clean structure
     this.data = {
       voyages: [],
       inscriptions: {},
@@ -177,11 +226,316 @@ export class Database {
           voyage_nom: 'Système',
           type: 'auto_sync',
           status: 'success',
-          message: 'Base de données initialisée en production. Prête pour l’ajout de vos instances DocuSeal.',
+          message: 'Base de données initialisée.',
         },
       ],
       adminPasswordHash: 'Gafa8432',
+      consultationPassword: 'Compta2027',
     };
+    this.saveToFile();
+  }
+
+  // Seed default demonstration trip with realistic registrations and duplicate entries
+  seedDefaultLondresVoyage(): void {
+    const voyageId = 'voyage-londres-ndm';
+    const voyage: Voyage = {
+      id: voyageId,
+      nom: 'Londres',
+      description: 'Voyage scolaire et linguistique à destination de Londres',
+      destination: 'Londres',
+      date_depart: '2027-04-12',
+      date_retour: '2027-04-16',
+      etablissement: "L'établissement scolaire Notre Dame des Missions",
+      classes_concernees: ['101', '102', '103', '104', '105'],
+      statut: 'inscriptions_ouvertes',
+      docuseal_instance_name: 'Londres',
+      docuseal_url: 'https://londres.docuseal.ndmissions.fr',
+      docuseal_template_id: '1',
+      connection_status: 'connected',
+      total_inscrits: 18,
+      total_complets: 11,
+      total_a_finaliser: 4,
+      total_doublons: 4,
+      total_non_signes: 3,
+      created_at: '2026-09-08 19:08',
+      updated_at: '2026-09-10 14:00',
+      last_sync_at: '2026-09-10 14:00',
+      last_sync_message: '✓ 18 dossiers actifs (2 doublons détectés)',
+      has_password: false,
+    };
+
+    // Authentic sample inscriptions with 2 pairs of duplicate students (Lucas DUPONT & Emma MARTIN)
+    const demoInscriptions: Inscription[] = [
+      {
+        id: 'insc-1',
+        voyage_id: voyageId,
+        eleve_nom: 'ANDRE',
+        eleve_prenom: 'Juliette',
+        classe: '101',
+        docuseal_submission_id: 'sub_10301',
+        date_creation: '2026-09-08 19:15',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'ANDRE Pierre', email: 'pierre.andre@gmail.com', statut: 'signed', date_signature: '2026-09-08 20:10', submitter_id: 'subm_101a' },
+        parent2: { nom: 'ANDRE Céline', email: 'celine.andre@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:00', submitter_id: 'subm_101b' },
+      },
+      {
+        id: 'insc-2',
+        voyage_id: voyageId,
+        eleve_nom: 'BERNARD',
+        eleve_prenom: 'Thomas',
+        classe: '101',
+        docuseal_submission_id: 'sub_10302',
+        date_creation: '2026-09-08 19:20',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'BERNARD Marc', email: 'marc.bernard@yahoo.fr', statut: 'signed', date_signature: '2026-09-08 20:30', submitter_id: 'subm_102a' },
+        parent2: { nom: 'BERNARD Sophie', email: 'sophie.bernard@gmail.com', statut: 'signed', date_signature: '2026-09-09 08:15', submitter_id: 'subm_102b' },
+      },
+      {
+        id: 'insc-3',
+        voyage_id: voyageId,
+        eleve_nom: 'DUBOIS',
+        eleve_prenom: 'Chloé',
+        classe: '103',
+        docuseal_submission_id: 'sub_10303',
+        date_creation: '2026-09-08 19:25',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'DUBOIS Julien', email: 'julien.dubois@free.fr', statut: 'signed', date_signature: '2026-09-08 20:45', submitter_id: 'subm_103a' },
+        parent2: { nom: 'DUBOIS Laure', email: 'laure.dubois@orange.fr', statut: 'signed', date_signature: '2026-09-08 21:30', submitter_id: 'subm_103b' },
+      },
+      // DOUBLON 1 - DOSSIER A : DUPONT Lucas (Complet 2/2)
+      {
+        id: 'insc-dupont-1',
+        voyage_id: voyageId,
+        eleve_nom: 'DUPONT',
+        eleve_prenom: 'Lucas',
+        classe: '101',
+        docuseal_submission_id: 'sub_10412',
+        date_creation: '2026-09-08 19:40',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'DUPONT Jean-Luc', email: 'jeanluc.dupont@orange.fr', statut: 'signed', date_signature: '2026-09-08 20:15', submitter_id: 'subm_104a' },
+        parent2: { nom: 'DUPONT Isabelle', email: 'isabelle.dupont@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:40', submitter_id: 'subm_104b' },
+        remarques: 'Premier dossier complété le 08/09.',
+      },
+      // DOUBLON 1 - DOSSIER B : DUPONT Lucas (A finaliser 1/2)
+      {
+        id: 'insc-dupont-2',
+        voyage_id: voyageId,
+        eleve_nom: 'DUPONT',
+        eleve_prenom: 'Lucas',
+        classe: '101',
+        docuseal_submission_id: 'sub_10294',
+        date_creation: '2026-09-09 11:20',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'DUPONT Jean-Luc', email: 'jeanluc.dupont@orange.fr', statut: 'signed', date_signature: '2026-09-09 11:25', submitter_id: 'subm_105a' },
+        parent2: { nom: 'DUPONT Isabelle', email: 'isabelle.dupont@gmail.com', statut: 'pending', submitter_id: 'subm_105b' },
+        remarques: 'Second dossier soumis en doublon.',
+      },
+      {
+        id: 'insc-6',
+        voyage_id: voyageId,
+        eleve_nom: 'FOURNIER',
+        eleve_prenom: 'Antoine',
+        classe: '105',
+        docuseal_submission_id: 'sub_10304',
+        date_creation: '2026-09-08 20:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'FOURNIER Eric', email: 'eric.fournier@laposte.net', statut: 'signed', date_signature: '2026-09-08 21:05', submitter_id: 'subm_106a' },
+        parent2: { nom: 'FOURNIER Claire', email: 'claire.fournier@laposte.net', statut: 'pending', submitter_id: 'subm_106b' },
+      },
+      {
+        id: 'insc-7',
+        voyage_id: voyageId,
+        eleve_nom: 'GIRARD',
+        eleve_prenom: 'Gabriel',
+        classe: '103',
+        docuseal_submission_id: 'sub_10305',
+        date_creation: '2026-09-08 20:10',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'GIRARD Nicolas', email: 'nicolas.girard@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:20', submitter_id: 'subm_107a' },
+        parent2: { nom: 'GIRARD Emilie', email: 'emilie.girard@gmail.com', statut: 'signed', date_signature: '2026-09-09 07:45', submitter_id: 'subm_107b' },
+      },
+      {
+        id: 'insc-8',
+        voyage_id: voyageId,
+        eleve_nom: 'LAURENT',
+        eleve_prenom: 'Inès',
+        classe: '103',
+        docuseal_submission_id: 'sub_10306',
+        date_creation: '2026-09-08 20:15',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'LAURENT Stéphane', email: 's.laurent@free.fr', statut: 'signed', date_signature: '2026-09-08 21:35', submitter_id: 'subm_108a' },
+        parent2: { nom: 'LAURENT Audrey', email: 'audrey.laurent@free.fr', statut: 'signed', date_signature: '2026-09-08 22:00', submitter_id: 'subm_108b' },
+      },
+      {
+        id: 'insc-9',
+        voyage_id: voyageId,
+        eleve_nom: 'LEFEBVRE',
+        eleve_prenom: 'Maxime',
+        classe: '101',
+        docuseal_submission_id: 'sub_10307',
+        date_creation: '2026-09-08 20:20',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'LEFEBVRE David', email: 'david.lefebvre@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:50', submitter_id: 'subm_109a' },
+        parent2: { nom: 'LEFEBVRE Karine', email: 'karine.lefebvre@gmail.com', statut: 'signed', date_signature: '2026-09-09 09:10', submitter_id: 'subm_109b' },
+      },
+      {
+        id: 'insc-10',
+        voyage_id: voyageId,
+        eleve_nom: 'LEROY',
+        eleve_prenom: 'Alexandre',
+        classe: '104',
+        docuseal_submission_id: 'sub_10308',
+        date_creation: '2026-09-08 20:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'LEROY François', email: 'f.leroy@bbox.fr', statut: 'signed', date_signature: '2026-09-08 22:15', submitter_id: 'subm_110a' },
+        parent2: { nom: 'LEROY Patricia', email: 'patricia.leroy@bbox.fr', statut: 'pending', submitter_id: 'subm_110b' },
+      },
+      // DOUBLON 2 - DOSSIER A : MARTIN Emma (Complet 2/2)
+      {
+        id: 'insc-martin-1',
+        voyage_id: voyageId,
+        eleve_nom: 'MARTIN',
+        eleve_prenom: 'Emma',
+        classe: '102',
+        docuseal_submission_id: 'sub_10399',
+        date_creation: '2026-09-08 20:45',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'MARTIN Christophe', email: 'c.martin@sfr.fr', statut: 'signed', date_signature: '2026-09-08 21:40', submitter_id: 'subm_111a' },
+        parent2: { nom: 'MARTIN Hélène', email: 'helene.martin@gmail.com', statut: 'signed', date_signature: '2026-09-08 22:30', submitter_id: 'subm_111b' },
+        remarques: 'Dossier initial complet.',
+      },
+      // DOUBLON 2 - DOSSIER B : MARTIN Emma (Non signé 0/2)
+      {
+        id: 'insc-martin-2',
+        voyage_id: voyageId,
+        eleve_nom: 'MARTIN',
+        eleve_prenom: 'Emma',
+        classe: '102',
+        docuseal_submission_id: 'sub_10218',
+        date_creation: '2026-09-09 14:10',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 0,
+        statut: 'NON_SIGNE',
+        parent1: { nom: 'MARTIN Christophe', email: 'c.martin@sfr.fr', statut: 'pending', submitter_id: 'subm_112a' },
+        parent2: { nom: 'MARTIN Hélène', email: 'helene.martin@gmail.com', statut: 'pending', submitter_id: 'subm_112b' },
+        remarques: 'Nouvelle soumission en doublon non signée.',
+      },
+      {
+        id: 'insc-13',
+        voyage_id: voyageId,
+        eleve_nom: 'MERCIER',
+        eleve_prenom: 'Arthur',
+        classe: '104',
+        docuseal_submission_id: 'sub_10309',
+        date_creation: '2026-09-08 21:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'MERCIER Guillaume', email: 'guillaume.mercier@outlook.com', statut: 'signed', date_signature: '2026-09-08 22:10', submitter_id: 'subm_113a' },
+        parent2: { nom: 'MERCIER Valérie', email: 'valerie.mercier@outlook.com', statut: 'signed', date_signature: '2026-09-09 10:20', submitter_id: 'subm_113b' },
+      },
+      {
+        id: 'insc-14',
+        voyage_id: voyageId,
+        eleve_nom: 'MOREAU',
+        eleve_prenom: 'Camille',
+        classe: '102',
+        docuseal_submission_id: 'sub_10310',
+        date_creation: '2026-09-08 21:15',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'MOREAU Sébastien', email: 'seb.moreau@orange.fr', statut: 'signed', date_signature: '2026-09-08 22:45', submitter_id: 'subm_114a' },
+        parent2: { nom: 'MOREAU Sandrine', email: 'sandrine.moreau@orange.fr', statut: 'signed', date_signature: '2026-09-09 08:30', submitter_id: 'subm_114b' },
+      },
+      {
+        id: 'insc-15',
+        voyage_id: voyageId,
+        eleve_nom: 'MOREL',
+        eleve_prenom: 'Manon',
+        classe: '102',
+        docuseal_submission_id: 'sub_10311',
+        date_creation: '2026-09-08 21:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'MOREL Laurent', email: 'laurent.morel@gmail.com', statut: 'signed', date_signature: '2026-09-09 08:00', submitter_id: 'subm_115a' },
+        parent2: { nom: 'MOREL Christine', email: 'christine.morel@gmail.com', statut: 'signed', date_signature: '2026-09-09 09:40', submitter_id: 'subm_115b' },
+      },
+      {
+        id: 'insc-16',
+        voyage_id: voyageId,
+        eleve_nom: 'ROUX',
+        eleve_prenom: 'Sarah',
+        classe: '104',
+        docuseal_submission_id: 'sub_10312',
+        date_creation: '2026-09-09 09:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 0,
+        statut: 'NON_SIGNE',
+        parent1: { nom: 'ROUX Benoît', email: 'benoit.roux@free.fr', statut: 'pending', submitter_id: 'subm_116a' },
+        parent2: { nom: 'ROUX Nathalie', email: 'nathalie.roux@free.fr', statut: 'pending', submitter_id: 'subm_116b' },
+      },
+      {
+        id: 'insc-17',
+        voyage_id: voyageId,
+        eleve_nom: 'SIMON',
+        eleve_prenom: 'Hugo',
+        classe: '105',
+        docuseal_submission_id: 'sub_10313',
+        date_creation: '2026-09-09 09:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'SIMON Thierry', email: 'thierry.simon@gmail.com', statut: 'signed', date_signature: '2026-09-09 10:15', submitter_id: 'subm_117a' },
+        parent2: { nom: 'SIMON Virginie', email: 'virginie.simon@gmail.com', statut: 'signed', date_signature: '2026-09-09 11:00', submitter_id: 'subm_117b' },
+      },
+      {
+        id: 'insc-18',
+        voyage_id: voyageId,
+        eleve_nom: 'VINCENT',
+        eleve_prenom: 'Clara',
+        classe: '105',
+        docuseal_submission_id: 'sub_10314',
+        date_creation: '2026-09-09 10:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'VINCENT Patrick', email: 'patrick.vincent@sfr.fr', statut: 'signed', date_signature: '2026-09-09 11:30', submitter_id: 'subm_118a' },
+        parent2: { nom: 'VINCENT Delphine', email: 'delphine.vincent@sfr.fr', statut: 'pending', submitter_id: 'subm_118b' },
+      },
+    ];
+
+    voyage.total_inscrits = demoInscriptions.length;
+    voyage.total_complets = demoInscriptions.filter((i) => i.statut === 'COMPLET').length;
+    voyage.total_a_finaliser = demoInscriptions.filter((i) => i.statut === 'A_FINALISER').length;
+    voyage.total_non_signes = demoInscriptions.filter((i) => i.statut === 'NON_SIGNE').length;
+    voyage.total_doublons = countDoublons(demoInscriptions);
+
+    this.data.voyages = [voyage];
+    this.data.inscriptions[voyageId] = demoInscriptions;
     this.saveToFile();
   }
 
@@ -202,17 +556,68 @@ export class Database {
         },
       ],
       adminPasswordHash: 'Gafa8432',
+      consultationPassword: 'Compta2027',
     };
     this.saveToFile();
+  }
+
+  // Purge fictitious / demo students from a specific trip or from all trips
+  purgeInscriptions(voyageId?: string): boolean {
+    const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    if (voyageId) {
+      const v = this.data.voyages.find((x) => x.id === voyageId);
+      if (!v) return false;
+      this.data.inscriptions[voyageId] = [];
+      v.total_inscrits = 0;
+      v.total_complets = 0;
+      v.total_a_finaliser = 0;
+      v.total_non_signes = 0;
+      v.total_doublons = 0;
+      v.last_sync_message = 'Dossiers fictifs supprimés (0 élève). Prêt pour la synchronisation DocuSeal.';
+      v.updated_at = now;
+      this.addLog({
+        voyage_id: v.id,
+        voyage_nom: v.nom,
+        type: 'manual_sync',
+        status: 'success',
+        message: `Dossiers d'élèves purgés pour le voyage "${v.nom}". Liste réinitialisée à 0 inscrit.`,
+        inscriptions_count: 0,
+      });
+      this.saveToFile();
+      return true;
+    } else {
+      this.data.voyages.forEach((v) => {
+        this.data.inscriptions[v.id] = [];
+        v.total_inscrits = 0;
+        v.total_complets = 0;
+        v.total_a_finaliser = 0;
+        v.total_non_signes = 0;
+        v.total_doublons = 0;
+        v.last_sync_message = 'Dossiers fictifs supprimés (0 élève).';
+        v.updated_at = now;
+      });
+      this.addLog({
+        voyage_id: 'system',
+        voyage_nom: 'Système',
+        type: 'manual_sync',
+        status: 'success',
+        message: 'Tous les dossiers fictifs ont été purgés pour tous les voyages.',
+        inscriptions_count: 0,
+      });
+      this.saveToFile();
+      return true;
+    }
   }
 
   // Get all trips
   getVoyages(isAdmin = false): Voyage[] {
     return this.data.voyages.map((v) => {
       const hasPassword = Boolean(v.mot_de_passe && v.mot_de_passe.trim().length > 0);
+      const totalDoublons = countDoublons(this.data.inscriptions[v.id] || []);
       if (!isAdmin) {
         return {
           ...v,
+          total_doublons: totalDoublons,
           mot_de_passe: undefined,
           has_password: hasPassword,
           docuseal_api_key: undefined,
@@ -221,6 +626,7 @@ export class Database {
       }
       return {
         ...v,
+        total_doublons: totalDoublons,
         has_password: hasPassword,
         docuseal_api_key_masked: v.docuseal_api_key ? `••••••••${v.docuseal_api_key.slice(-4)}` : undefined,
       };
@@ -231,9 +637,11 @@ export class Database {
     const v = this.data.voyages.find((x) => x.id === id);
     if (!v) return undefined;
     const hasPassword = Boolean(v.mot_de_passe && v.mot_de_passe.trim().length > 0);
+    const totalDoublons = countDoublons(this.data.inscriptions[v.id] || []);
     if (!isAdmin) {
       return {
         ...v,
+        total_doublons: totalDoublons,
         mot_de_passe: undefined,
         has_password: hasPassword,
         docuseal_api_key: undefined,
@@ -242,6 +650,7 @@ export class Database {
     }
     return {
       ...v,
+      total_doublons: totalDoublons,
       has_password: hasPassword,
     };
   }
@@ -560,9 +969,10 @@ export class Database {
     return testResult;
   }
 
-  // Get Inscriptions
+  // Get Inscriptions with filters, duplicate detection, and alphabetical sorting
   getInscriptions(voyageId: string, search?: string, classe?: string, statut?: string): Inscription[] {
-    let list = this.data.inscriptions[voyageId] || [];
+    const fullTripList = this.data.inscriptions[voyageId] || [];
+    let list = [...fullTripList];
 
     if (search && search.trim() !== '') {
       const q = search.trim().toLowerCase();
@@ -581,8 +991,28 @@ export class Database {
     }
 
     if (statut && statut !== 'Tous') {
-      list = list.filter((item) => item.statut === statut);
+      if (statut === 'DOUBLONS' || statut === 'DOUBLON') {
+        // Filter strictly for students with identical last name and first name in the trip
+        const duplicateKeys = getDuplicateStudentKeys(fullTripList);
+        list = list.filter((item) => {
+          const key = normalizeStudentKey(item.eleve_nom, item.eleve_prenom);
+          return duplicateKeys.has(key);
+        });
+      } else {
+        list = list.filter((item) => item.statut === statut);
+      }
     }
+
+    // Always sort by student last name ASC, then first name ASC (Alphabetical order)
+    list.sort((a, b) => {
+      const nomA = (a.eleve_nom || '').trim();
+      const nomB = (b.eleve_nom || '').trim();
+      const cmpNom = nomA.localeCompare(nomB, 'fr', { sensitivity: 'base', numeric: true });
+      if (cmpNom !== 0) return cmpNom;
+      const prenomA = (a.eleve_prenom || '').trim();
+      const prenomB = (b.eleve_prenom || '').trim();
+      return prenomA.localeCompare(prenomB, 'fr', { sensitivity: 'base', numeric: true });
+    });
 
     return list;
   }
@@ -603,6 +1033,18 @@ export class Database {
     const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
     const currentInscriptions = this.data.inscriptions[voyageId] || [];
     const currentSubIds = new Set(currentInscriptions.map((i) => i.docuseal_submission_id));
+
+    if (!v.docuseal_api_key || !v.docuseal_api_key.trim()) {
+      v.connection_status = 'error';
+      v.last_sync_at = now;
+      v.last_sync_message = 'Clé API DocuSeal non configurée';
+      this.saveToFile();
+      return {
+        success: false,
+        message: `Clé API DocuSeal non renseignée pour le voyage "${v.nom}". Rendez-vous dans l'Espace Administration pour modifier le voyage et saisir la clé API de votre instance DocuSeal.`,
+        stats: { analyzed: currentInscriptions.length, newInscriptions: 0, newSignatures: 0 },
+      };
+    }
 
     let newSignaturesCount = 0;
     let newInscriptionsCount = 0;
@@ -942,8 +1384,9 @@ export class Database {
       v.total_complets = mappedInscriptions.filter((i) => i.statut === 'COMPLET').length;
       v.total_a_finaliser = mappedInscriptions.filter((i) => i.statut === 'A_FINALISER').length;
       v.total_non_signes = mappedInscriptions.filter((i) => i.statut === 'NON_SIGNE').length;
+      v.total_doublons = countDoublons(mappedInscriptions);
       v.last_sync_at = now;
-      v.last_sync_message = `✓ ${mappedInscriptions.length} dossiers actifs (${archivedCount} archivés exclus)`;
+      v.last_sync_message = `✓ ${mappedInscriptions.length} dossiers actifs (${archivedCount} archivés exclus, ${v.total_doublons} doublons)`;
 
       this.addLog({
         voyage_id: v.id,
@@ -1035,6 +1478,7 @@ export class Database {
     v.total_complets = list.filter((i) => i.statut === 'COMPLET').length;
     v.total_a_finaliser = list.filter((i) => i.statut === 'A_FINALISER').length;
     v.total_non_signes = list.filter((i) => i.statut === 'NON_SIGNE').length;
+    v.total_doublons = countDoublons(list);
     v.last_sync_at = now;
 
     this.addLog({
@@ -1370,6 +1814,22 @@ export class Database {
   setAdminPassword(newPassword: string): void {
     this.data.adminPasswordHash = newPassword;
     this.saveToFile();
+  }
+
+  // Consultation / Accountant authentication
+  getConsultationPassword(): string {
+    return this.data.consultationPassword || 'Compta2027';
+  }
+
+  setConsultationPassword(newPassword: string): void {
+    this.data.consultationPassword = newPassword.trim();
+    this.saveToFile();
+  }
+
+  verifyConsultationPassword(password: string): boolean {
+    const clean = (password || '').trim();
+    const current = (this.data.consultationPassword || 'Compta2027').trim();
+    return clean === current;
   }
 }
 

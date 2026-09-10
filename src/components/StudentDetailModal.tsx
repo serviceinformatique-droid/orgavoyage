@@ -19,6 +19,7 @@ import {
 interface StudentDetailModalProps {
   inscription: Inscription | null;
   voyage: Voyage | null;
+  allInscriptions?: Inscription[];
   onClose: () => void;
   onRelanceSent: () => void;
 }
@@ -38,6 +39,7 @@ interface RelanceResult {
 export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   inscription,
   voyage,
+  allInscriptions = [],
   onClose,
   onRelanceSent,
 }) => {
@@ -72,6 +74,21 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   const parent2SigningUrl = inscription.parent2.slug 
     ? `${docusealBase}/s/${inscription.parent2.slug}` 
     : docusealViewerUrl;
+
+  // Find if there are duplicate submissions with identical student first and last name
+  const duplicateSubmissions = React.useMemo(() => {
+    if (!inscription || !allInscriptions || allInscriptions.length === 0) return [];
+    const cleanNom = (inscription.eleve_nom || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+    const cleanPrenom = (inscription.eleve_prenom || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+    if (!cleanNom && !cleanPrenom) return [];
+
+    return allInscriptions.filter((other) => {
+      if (other.id === inscription.id) return false;
+      const otherNom = (other.eleve_nom || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+      const otherPrenom = (other.eleve_prenom || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+      return otherNom === cleanNom && otherPrenom === cleanPrenom;
+    });
+  }, [inscription, allInscriptions]);
 
   const handleCopy = (text: string, setCopiedFn: (val: boolean) => void) => {
     navigator.clipboard.writeText(text);
@@ -140,6 +157,43 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         </div>
 
         <div className="p-6 space-y-6">
+          {/* Duplicate warning alert if another submission exists for this student */}
+          {duplicateSubmissions.length > 0 && (
+            <div className="p-4 bg-purple-50 border-2 border-purple-300 rounded-2xl text-purple-950 text-xs space-y-2 animate-in fade-in">
+              <div className="flex items-center gap-2 font-black text-sm text-purple-900">
+                <Copy className="w-4 h-4 text-purple-600 shrink-0" />
+                <span>⚠️ Attention : Dossier en doublon détecté</span>
+              </div>
+              <p className="leading-relaxed">
+                Il existe <strong>{duplicateSubmissions.length}</strong> autre(s) dossier(s) d'inscription enregistré(s) avec exactement le même nom et prénom (<strong>{inscription.eleve_nom} {inscription.eleve_prenom}</strong>) dans ce voyage.
+              </p>
+              <div className="space-y-1.5 pt-1">
+                {duplicateSubmissions.map((dupe) => (
+                  <div key={dupe.id} className="bg-white/80 p-2.5 rounded-xl border border-purple-200 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold">Dossier #{dupe.docuseal_submission_id}</span>
+                      <span className="mx-1.5 text-purple-300">•</span>
+                      <span>Classe {dupe.classe}</span>
+                      <span className="mx-1.5 text-purple-300">•</span>
+                      <span className="font-semibold">
+                        {dupe.statut === 'COMPLET' ? '🟢 Complet (2/2)' : dupe.statut === 'A_FINALISER' ? '🟠 1/2 signé' : '🔴 0/2 signé'}
+                      </span>
+                    </div>
+                    <a
+                      href={`${docusealBase}/submissions/${dupe.docuseal_submission_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 hover:text-purple-900 underline"
+                    >
+                      <span>Voir sur DocuSeal</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Status highlight banner */}
           <div
             className={`p-4 rounded-xl border flex items-center justify-between ${

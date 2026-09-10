@@ -63,6 +63,7 @@ export interface Voyage {
   total_inscrits: number;
   total_complets: number;
   total_a_finaliser: number;
+  total_doublons?: number;
   total_non_signes: number;
   
   created_at: string;
@@ -85,8 +86,9 @@ export interface SyncLogEntry {
 export type SyncLog = SyncLogEntry;
 
 export interface UserSession {
-  role: 'admin' | 'professeur';
+  role: 'admin' | 'professeur' | 'consultation';
   nom: string;
   email: string;
   isAdmin: boolean;
+  isConsultation?: boolean;
 }

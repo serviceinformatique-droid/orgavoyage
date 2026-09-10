@@ -25,6 +25,10 @@ export default function App() {
   const [adminToken, setAdminToken] = useState<string>('');
   const [showAdminLoginModal, setShowAdminLoginModal] = useState<boolean>(false);
 
+  // Consultation (Accountant) Auth state
+  const [isConsultation, setIsConsultation] = useState<boolean>(false);
+  const [consultationToken, setConsultationToken] = useState<string>('');
+
   // Per-voyage password state (stores unlocked voyage passwords)
   const [unlockedVoyages, setUnlockedVoyages] = useState<Record<string, string>>(() => {
     try {
@@ -43,6 +47,10 @@ export default function App() {
       const headers: Record<string, string> = {};
       if (activeToken) {
         headers['x-admin-token'] = activeToken;
+      }
+      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      if (cToken) {
+        headers['x-consultation-token'] = cToken;
       }
 
       const res = await fetch('/api/voyages', { headers });
@@ -68,23 +76,43 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Check if previous session had admin token saved in sessionStorage
-    const savedToken = sessionStorage.getItem('ndm_admin_token');
-    if (savedToken) {
+    // Check if previous session had tokens saved in sessionStorage
+    const savedAdminToken = sessionStorage.getItem('ndm_admin_token');
+    const savedConsultationToken = sessionStorage.getItem('ndm_consultation_token');
+
+    if (savedAdminToken) {
       setIsAdmin(true);
-      setAdminToken(savedToken);
-      fetchVoyages(savedToken);
+      setAdminToken(savedAdminToken);
+      fetchVoyages(savedAdminToken);
+    } else if (savedConsultationToken) {
+      setIsConsultation(true);
+      setConsultationToken(savedConsultationToken);
+      fetchVoyages();
     } else {
       fetchVoyages();
     }
   }, []);
 
-  const handleAdminLoginSuccess = (token: string) => {
-    setIsAdmin(true);
-    setAdminToken(token);
-    sessionStorage.setItem('ndm_admin_token', token);
-    setCurrentTab('admin');
-    fetchVoyages(token);
+  const handleLoginSuccess = (token: string, role: 'admin' | 'consultation') => {
+    if (role === 'admin') {
+      setIsAdmin(true);
+      setIsConsultation(false);
+      setAdminToken(token);
+      setConsultationToken('');
+      sessionStorage.setItem('ndm_admin_token', token);
+      sessionStorage.removeItem('ndm_consultation_token');
+      setCurrentTab('admin');
+      fetchVoyages(token);
+    } else {
+      setIsConsultation(true);
+      setIsAdmin(false);
+      setConsultationToken(token);
+      setAdminToken('');
+      sessionStorage.setItem('ndm_consultation_token', token);
+      sessionStorage.removeItem('ndm_admin_token');
+      setCurrentTab('teacher');
+      fetchVoyages();
+    }
   };
 
   const handleLogoutAdmin = () => {
@@ -95,10 +123,17 @@ export default function App() {
     fetchVoyages('');
   };
 
+  const handleLogoutConsultation = () => {
+    setIsConsultation(false);
+    setConsultationToken('');
+    sessionStorage.removeItem('ndm_consultation_token');
+    fetchVoyages('');
+  };
+
   const handleSelectVoyage = (voyageId: string) => {
     setSelectedVoyageId(voyageId);
     const target = voyages.find((v) => v.id === voyageId);
-    if (target?.has_password && !isAdmin && !unlockedVoyages[voyageId]) {
+    if (target?.has_password && !isAdmin && !isConsultation && !unlockedVoyages[voyageId]) {
       setPasswordModalVoyage(target);
     }
   };
@@ -141,8 +176,10 @@ export default function App() {
         currentTab={currentTab}
         onTabChange={(tab) => setCurrentTab(tab)}
         isAdmin={isAdmin}
+        isConsultation={isConsultation}
         onAdminLoginClick={() => setShowAdminLoginModal(true)}
         onLogoutAdmin={handleLogoutAdmin}
+        onLogoutConsultation={handleLogoutConsultation}
         totalTripsCount={voyages.length}
       />
 
@@ -181,6 +218,8 @@ export default function App() {
                 }}
                 onLockVoyage={() => handleLockVoyage(selectedVoyageId)}
                 isAdmin={isAdmin}
+                isConsultation={isConsultation}
+                consultationToken={consultationToken}
               />
             )}
 
@@ -219,11 +258,11 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Admin Login Modal */}
+      {/* Admin / Consultation Login Modal */}
       <AdminLoginModal
         isOpen={showAdminLoginModal}
         onClose={() => setShowAdminLoginModal(false)}
-        onSuccess={handleAdminLoginSuccess}
+        onSuccess={handleLoginSuccess}
       />
 
       {/* Per-Trip Password Modal */}

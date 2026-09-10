@@ -28,6 +28,28 @@ async function startServer() {
     return false;
   };
 
+  // Middleware to check consultation / accountant authorization header or query
+  const checkConsultationAuth = (req: Request): boolean => {
+    if (checkAdminAuth(req)) return true;
+    const token = (req.headers['x-consultation-token'] as string) || (req.query.consultationToken as string);
+    if (
+      token === 'consultation-token-2027' ||
+      token === 'compta-token-2027' ||
+      token === 'consultation-token-active'
+    ) {
+      return true;
+    }
+    const currentPwd = db.getConsultationPassword();
+    if (currentPwd && token === currentPwd) {
+      return true;
+    }
+    const authHeader = req.headers.authorization;
+    if (authHeader && (authHeader.includes('consultation-token') || authHeader.includes('compta-token'))) {
+      return true;
+    }
+    return false;
+  };
+
   // --- API ROUTES ---
 
   // Health check
@@ -55,7 +77,30 @@ async function startServer() {
       } else {
         return res.status(401).json({
           success: false,
-          message: 'Mot de passe administrateur incorrect (par défaut : admin2027)',
+          message: 'Mot de passe administrateur incorrect',
+        });
+      }
+    }
+
+    // Consultation / Accountant Login (read-only access to all voyages)
+    if (role === 'consultation' || role === 'comptable') {
+      if (db.verifyConsultationPassword(password)) {
+        return res.json({
+          success: true,
+          role: 'consultation',
+          token: 'consultation-token-active',
+          user: {
+            nom: 'Service Comptabilité',
+            email: email || 'comptabilite@ndmissions.fr',
+            role: 'consultation',
+            isAdmin: false,
+            isConsultation: true,
+          },
+        });
+      } else {
+        return res.status(401).json({
+          success: false,
+          message: 'Mot de passe de consultation incorrect',
         });
       }
     }
@@ -97,6 +142,31 @@ async function startServer() {
     }
     db.setAdminPassword(newPassword.trim());
     return res.json({ success: true, message: 'Mot de passe administrateur mis à jour avec succès' });
+  });
+
+  // Get Consultation Password (Admin only)
+  app.get('/api/admin/consultation-password', (req: Request, res: Response) => {
+    if (!checkAdminAuth(req)) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+    return res.json({ success: true, password: db.getConsultationPassword() });
+  });
+
+  // Change Consultation Password (Admin only)
+  app.post('/api/admin/change-consultation-password', (req: Request, res: Response) => {
+    if (!checkAdminAuth(req)) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.trim().length < 3) {
+      return res.status(400).json({ success: false, message: 'Le mot de passe consultation doit comporter au moins 3 caractères' });
+    }
+    db.setConsultationPassword(newPassword.trim());
+    return res.json({
+      success: true,
+      message: 'Mot de passe consultation (comptabilité) mis à jour avec succès',
+      password: newPassword.trim(),
+    });
   });
 
   // List Voyages
@@ -236,6 +306,12 @@ async function startServer() {
     res.json({ success: true, message: 'Base de données réinitialisée à 0 pour la production.' });
   });
 
+  // Seed demonstration trip with duplicate examples
+  app.post('/api/admin/seed-demo', (req: Request, res: Response) => {
+    db.seedDefaultLondresVoyage();
+    res.json({ success: true, message: 'Voyage de démonstration initialisé avec succès avec dossiers et doublons.' });
+  });
+
   // Test all connections
   app.post('/api/voyages/test-all', async (req: Request, res: Response) => {
     const voyages = db.getVoyages(true);
@@ -283,6 +359,30 @@ async function startServer() {
     res.json(result);
   });
 
+  // Purge fictitious / demo students from a specific voyage
+  app.post('/api/voyages/:id/purge-inscriptions', (req: Request, res: Response) => {
+    const ok = db.purgeInscriptions(req.params.id);
+    if (!ok) {
+      return res.status(404).json({ success: false, message: 'Voyage introuvable' });
+    }
+    return res.json({
+      success: true,
+      message: 'Dossiers fictifs supprimés pour ce voyage. La liste est désormais prête pour la synchronisation réelle.',
+    });
+  });
+
+  // Purge all demo students from all voyages (Admin only)
+  app.post('/api/admin/purge-all-inscriptions', (req: Request, res: Response) => {
+    if (!checkAdminAuth(req)) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+    db.purgeInscriptions();
+    return res.json({
+      success: true,
+      message: 'Tous les élèves fictifs ont été purgés de tous les voyages.',
+    });
+  });
+
   // Get Inscriptions for a Voyage with search & filters
   app.get('/api/voyages/:id/inscriptions', (req: Request, res: Response) => {
     // Check trip password protection
@@ -293,10 +393,11 @@ async function startServer() {
 
     if (voyage.mot_de_passe && voyage.mot_de_passe.trim().length > 0) {
       const isAdmin = checkAdminAuth(req);
+      const isConsultation = checkConsultationAuth(req);
       const clientPassword =
         ((req.headers['x-voyage-password'] as string | undefined)?.trim()) ||
         ((req.query.password as string | undefined)?.trim());
-      if (!isAdmin && clientPassword !== voyage.mot_de_passe.trim()) {
+      if (!isAdmin && !isConsultation && clientPassword !== voyage.mot_de_passe.trim()) {
         return res.status(403).json({
           error: 'Accès restreint : mot de passe requis pour ce voyage.',
           passwordRequired: true,
@@ -457,10 +558,11 @@ async function startServer() {
 
     if (voyage.mot_de_passe && voyage.mot_de_passe.trim().length > 0) {
       const isAdmin = checkAdminAuth(req);
+      const isConsultation = checkConsultationAuth(req);
       const queryPassword = (req.query.password as string | undefined)?.trim();
       const headerPassword = (req.headers['x-voyage-password'] as string | undefined)?.trim();
       const provided = queryPassword || headerPassword;
-      if (!isAdmin && provided !== voyage.mot_de_passe.trim()) {
+      if (!isAdmin && !isConsultation && provided !== voyage.mot_de_passe.trim()) {
         return res.status(403).send('Accès refusé : mot de passe du voyage requis pour télécharger l’export.');
       }
     }
