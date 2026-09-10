@@ -25,9 +25,11 @@ import {
   Unlock,
   Eye,
   EyeOff,
-  Mail
+  Mail,
+  FileText
 } from 'lucide-react';
 import { MassRelanceModal } from './MassRelanceModal.js';
+import { PdfExportModal } from './PdfExportModal.js';
 
 interface AdminDocuSealManagerProps {
   voyages: Voyage[];
@@ -95,6 +97,29 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
   // Mass relance modal state
   const [relanceVoyage, setRelanceVoyage] = useState<{ voyage: Voyage; inscriptions: Inscription[] } | null>(null);
   const [loadingRelanceId, setLoadingRelanceId] = useState<string | null>(null);
+
+  // PDF Export modal state
+  const [exportPdfVoyage, setExportPdfVoyage] = useState<{ voyage: Voyage; inscriptions: Inscription[] } | null>(null);
+  const [loadingPdfId, setLoadingPdfId] = useState<string | null>(null);
+
+  const handleOpenPdfExport = async (v: Voyage) => {
+    setLoadingPdfId(v.id);
+    try {
+      const res = await fetch(`/api/voyages/${v.id}/inscriptions`, {
+        headers: { 'x-admin-token': adminToken },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setExportPdfVoyage({ voyage: v, inscriptions: data });
+      } else {
+        setActionNotice({ type: 'error', message: 'Impossible de charger les dossiers pour ce voyage.' });
+      }
+    } catch {
+      setActionNotice({ type: 'error', message: 'Erreur de communication lors du chargement des dossiers.' });
+    } finally {
+      setLoadingPdfId(null);
+    }
+  };
 
   const handleOpenRelance = async (v: Voyage) => {
     setLoadingRelanceId(v.id);
@@ -895,6 +920,15 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                   </button>
 
                   <button
+                    onClick={() => handleOpenPdfExport(v)}
+                    disabled={loadingPdfId === v.id}
+                    className="p-2 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg text-xs font-bold transition-colors"
+                    title="Exporter la liste officielle en PDF"
+                  >
+                    <FileText className={`w-4 h-4 ${loadingPdfId === v.id ? 'animate-bounce' : ''}`} />
+                  </button>
+
+                  <button
                     onClick={() => setVoyageToDelete(v)}
                     className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-colors"
                     title="Supprimer ce voyage"
@@ -1591,6 +1625,16 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
           onSuccess={() => {
             onRefreshVoyages();
           }}
+        />
+      )}
+
+      {/* PDF Export Modal */}
+      {exportPdfVoyage && (
+        <PdfExportModal
+          voyage={exportPdfVoyage.voyage}
+          inscriptions={exportPdfVoyage.inscriptions}
+          classesList={Array.from(new Set(exportPdfVoyage.inscriptions.map((i) => i.classe).filter(Boolean))).sort()}
+          onClose={() => setExportPdfVoyage(null)}
         />
       )}
     </div>

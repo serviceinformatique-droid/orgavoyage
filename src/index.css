@@ -1,1 +1,63 @@
 @import "tailwindcss";
+
+@media print {
+  /* Set clean page layout */
+  @page {
+    size: landscape;
+    margin: 10mm;
+  }
+
+  /* Hide navigation, headers, and UI controls */
+  header, footer, nav, button, .print-hidden, [role="dialog"] > div > div:first-child {
+    display: none !important;
+  }
+
+  /* Reset body and remove scrollbars */
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+  }
+
+  /* If printing from the modal, hide root app content outside the modal */
+  body.has-print-modal > #root > *:not([role="dialog"]) {
+    display: none !important;
+  }
+
+  /* Printable container takes full natural height */
+  .printable-container, #printable-report {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Table styling for multi-page print */
+  table {
+    page-break-inside: auto !important;
+    width: 100% !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+}

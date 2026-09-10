@@ -765,6 +765,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         <PdfExportModal
           voyage={currentVoyage}
           inscriptions={inscriptions}
+          classesList={classesList}
           onClose={() => setShowPdfModal(false)}
         />
       )}
