@@ -61,7 +61,7 @@ async function startServer() {
   app.post('/api/auth/login', (req: Request, res: Response) => {
     const { role, password, email } = req.body;
 
-    if (role === 'admin') {
+    if (role === 'admin' || (!role && db.verifyAdminPassword(password))) {
       if (db.verifyAdminPassword(password)) {
         return res.json({
           success: true,
@@ -83,7 +83,7 @@ async function startServer() {
     }
 
     // Consultation / Accountant Login (read-only access to all voyages)
-    if (role === 'consultation' || role === 'comptable') {
+    if (role === 'consultation' || role === 'comptable' || db.verifyConsultationPassword(password)) {
       if (db.verifyConsultationPassword(password)) {
         return res.json({
           success: true,
@@ -306,10 +306,10 @@ async function startServer() {
     res.json({ success: true, message: 'Base de données réinitialisée à 0 pour la production.' });
   });
 
-  // Seed demonstration trip with duplicate examples
+  // Seed demonstration trips (Londres, Rome, Madrid, Berlin) with student rosters
   app.post('/api/admin/seed-demo', (req: Request, res: Response) => {
-    db.seedDefaultLondresVoyage();
-    res.json({ success: true, message: 'Voyage de démonstration initialisé avec succès avec dossiers et doublons.' });
+    db.seedDefaultVoyages();
+    res.json({ success: true, message: '4 voyages scolaires (Londres, Rome, Madrid, Berlin) initialisés avec succès avec listes d\'élèves.' });
   });
 
   // Test all connections
@@ -630,12 +630,15 @@ async function startServer() {
     res.json(result);
   });
 
-  // Sync Logs
-  app.get('/api/logs', (req: Request, res: Response) => {
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+  // Sync Logs - support both /api/logs/sync and /api/logs
+  const handleGetLogs = (req: Request, res: Response) => {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
     const logs = db.getLogs(limit);
     res.json(logs);
-  });
+  };
+
+  app.get('/api/logs', handleGetLogs);
+  app.get('/api/logs/sync', handleGetLogs);
 
   // --- VITE MIDDLEWARE SETUP ---
   if (process.env.NODE_ENV !== 'production') {

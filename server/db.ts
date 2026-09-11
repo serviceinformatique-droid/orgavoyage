@@ -200,6 +200,9 @@ export class Database {
           if (changed) {
             this.saveToFile();
           }
+          if (!this.data.voyages || this.data.voyages.length === 0) {
+            this.seedDefaultVoyages();
+          }
           return true;
         }
       }
@@ -211,6 +214,9 @@ export class Database {
 
   constructor() {
     if (this.loadFromFile()) {
+      if (!this.data.voyages || this.data.voyages.length === 0) {
+        this.seedDefaultVoyages();
+      }
       return;
     }
 
@@ -226,17 +232,17 @@ export class Database {
           voyage_nom: 'Système',
           type: 'auto_sync',
           status: 'success',
-          message: 'Base de données initialisée.',
+          message: 'Base de données initialisée avec les voyages scolaires Notre Dame des Missions.',
         },
       ],
       adminPasswordHash: 'Gafa8432',
       consultationPassword: 'Compta2027',
     };
-    this.saveToFile();
+    this.seedDefaultVoyages();
   }
 
-  // Seed default demonstration trip with realistic registrations and duplicate entries
-  seedDefaultLondresVoyage(): void {
+  // Seed default demonstration trips (Londres, Rome, Madrid, Berlin) with realistic registrations and duplicate entries
+  seedDefaultVoyages(): void {
     const voyageId = 'voyage-londres-ndm';
     const voyage: Voyage = {
       id: voyageId,
@@ -534,9 +540,770 @@ export class Database {
     voyage.total_non_signes = demoInscriptions.filter((i) => i.statut === 'NON_SIGNE').length;
     voyage.total_doublons = countDoublons(demoInscriptions);
 
-    this.data.voyages = [voyage];
+    // Voyage 2 : Rome & Antiquité (Italie) - Protégé par mot de passe prof 'Rome2027'
+    const voyageRomeId = 'voyage-rome-ndm';
+    const voyageRome: Voyage = {
+      id: voyageRomeId,
+      nom: 'Rome & Antiquité',
+      description: 'Découverte historique et culturelle de Rome antique et baroque (Vatican, Forum, Colisée)',
+      destination: 'Rome (Italie)',
+      date_depart: '2027-05-03',
+      date_retour: '2027-05-08',
+      etablissement: "L'établissement scolaire Notre Dame des Missions",
+      classes_concernees: ['201', '202', '203'],
+      statut: 'inscriptions_ouvertes',
+      docuseal_instance_name: 'Rome',
+      docuseal_url: 'https://rome.docuseal.ndmissions.fr',
+      docuseal_template_id: '2',
+      connection_status: 'connected',
+      created_at: '2026-09-08 19:10',
+      updated_at: '2026-09-10 14:00',
+      last_sync_at: '2026-09-10 14:00',
+      last_sync_message: '✓ 16 dossiers synchronisés avec succès',
+      total_inscrits: 16,
+      total_complets: 12,
+      total_a_finaliser: 3,
+      total_non_signes: 1,
+      total_doublons: 0,
+      has_password: true,
+      mot_de_passe: 'Rome2027',
+    };
+
+    const romeInscriptions: Inscription[] = [
+      {
+        id: 'insc-rome-1',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'BONNET',
+        eleve_prenom: 'Alexandre',
+        classe: '201',
+        docuseal_submission_id: 'sub_rome_201',
+        date_creation: '2026-09-08 20:15',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'BONNET Marc', email: 'marc.bonnet@orange.fr', telephone: '06 12 34 56 78', statut: 'signed', date_signature: '2026-09-08 21:00', submitter_id: 'subm_r1a' },
+        parent2: { nom: 'BONNET Claire', email: 'claire.bonnet@orange.fr', telephone: '06 23 45 67 89', statut: 'signed', date_signature: '2026-09-08 21:45', submitter_id: 'subm_r1b' },
+      },
+      {
+        id: 'insc-rome-2',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'CARON',
+        eleve_prenom: 'Mathilde',
+        classe: '201',
+        docuseal_submission_id: 'sub_rome_202',
+        date_creation: '2026-09-08 20:20',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'CARON Fabrice', email: 'fabrice.caron@free.fr', telephone: '06 34 56 78 90', statut: 'signed', date_signature: '2026-09-09 08:30', submitter_id: 'subm_r2a' },
+        parent2: { nom: 'CARON Valérie', email: 'valerie.caron@free.fr', telephone: '06 45 67 89 01', statut: 'signed', date_signature: '2026-09-09 09:15', submitter_id: 'subm_r2b' },
+      },
+      {
+        id: 'insc-rome-3',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'CHEVALIER',
+        eleve_prenom: 'Maxime',
+        classe: '201',
+        docuseal_submission_id: 'sub_rome_203',
+        date_creation: '2026-09-08 20:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'CHEVALIER Arnaud', email: 'arnaud.chev@gmail.com', statut: 'signed', date_signature: '2026-09-08 22:00', submitter_id: 'subm_r3a' },
+        parent2: { nom: 'CHEVALIER Sandrine', email: 'sandrine.chev@gmail.com', statut: 'signed', date_signature: '2026-09-09 07:45', submitter_id: 'subm_r3b' },
+      },
+      {
+        id: 'insc-rome-4',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'COLIN',
+        eleve_prenom: 'Léa',
+        classe: '201',
+        docuseal_submission_id: 'sub_rome_204',
+        date_creation: '2026-09-08 20:45',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'COLIN David', email: 'david.colin@sfr.fr', statut: 'signed', date_signature: '2026-09-08 21:30', submitter_id: 'subm_r4a' },
+        parent2: { nom: 'COLIN Isabelle', email: 'isabelle.colin@sfr.fr', statut: 'pending', submitter_id: 'subm_r4b' },
+      },
+      {
+        id: 'insc-rome-5',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'DA SILVA',
+        eleve_prenom: 'Lucas',
+        classe: '202',
+        docuseal_submission_id: 'sub_rome_205',
+        date_creation: '2026-09-09 08:15',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'DA SILVA Manuel', email: 'manuel.dasilva@gmail.com', statut: 'signed', date_signature: '2026-09-09 09:00', submitter_id: 'subm_r5a' },
+        parent2: { nom: 'DA SILVA Maria', email: 'maria.dasilva@gmail.com', statut: 'signed', date_signature: '2026-09-09 10:15', submitter_id: 'subm_r5b' },
+      },
+      {
+        id: 'insc-rome-6',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'FERNANDES',
+        eleve_prenom: 'Enzo',
+        classe: '202',
+        docuseal_submission_id: 'sub_rome_206',
+        date_creation: '2026-09-09 08:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'FERNANDES Antonio', email: 'antonio.fern@free.fr', statut: 'signed', date_signature: '2026-09-09 11:00', submitter_id: 'subm_r6a' },
+        parent2: { nom: 'FERNANDES Sophie', email: 'sophie.fern@free.fr', statut: 'signed', date_signature: '2026-09-09 11:30', submitter_id: 'subm_r6b' },
+      },
+      {
+        id: 'insc-rome-7',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'GARCIA',
+        eleve_prenom: 'Manon',
+        classe: '202',
+        docuseal_submission_id: 'sub_rome_207',
+        date_creation: '2026-09-09 09:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'GARCIA Carlos', email: 'carlos.garcia@orange.fr', statut: 'signed', date_signature: '2026-09-09 12:00', submitter_id: 'subm_r7a' },
+        parent2: { nom: 'GARCIA Hélène', email: 'helene.garcia@orange.fr', statut: 'signed', date_signature: '2026-09-09 12:30', submitter_id: 'subm_r7b' },
+      },
+      {
+        id: 'insc-rome-8',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'GUERIN',
+        eleve_prenom: 'Nathan',
+        classe: '202',
+        docuseal_submission_id: 'sub_rome_208',
+        date_creation: '2026-09-09 09:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 0,
+        statut: 'NON_SIGNE',
+        parent1: { nom: 'GUERIN Laurent', email: 'laurent.guerin@yahoo.fr', statut: 'pending', submitter_id: 'subm_r8a' },
+        parent2: { nom: 'GUERIN Florence', email: 'florence.guerin@yahoo.fr', statut: 'pending', submitter_id: 'subm_r8b' },
+      },
+      {
+        id: 'insc-rome-9',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'HENRY',
+        eleve_prenom: 'Camille',
+        classe: '202',
+        docuseal_submission_id: 'sub_rome_209',
+        date_creation: '2026-09-09 10:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'HENRY Philippe', email: 'philippe.henry@gmail.com', statut: 'signed', date_signature: '2026-09-09 10:45', submitter_id: 'subm_r9a' },
+        parent2: { nom: 'HENRY Nathalie', email: 'nathalie.henry@gmail.com', statut: 'signed', date_signature: '2026-09-09 11:15', submitter_id: 'subm_r9b' },
+      },
+      {
+        id: 'insc-rome-10',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'LACROIX',
+        eleve_prenom: 'Louis',
+        classe: '203',
+        docuseal_submission_id: 'sub_rome_210',
+        date_creation: '2026-09-09 10:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'LACROIX Michel', email: 'michel.lacroix@orange.fr', statut: 'signed', date_signature: '2026-09-09 13:00', submitter_id: 'subm_r10a' },
+        parent2: { nom: 'LACROIX Christine', email: 'christine.lacroix@orange.fr', statut: 'signed', date_signature: '2026-09-09 14:00', submitter_id: 'subm_r10b' },
+      },
+      {
+        id: 'insc-rome-11',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'LEFEVRE',
+        eleve_prenom: 'Inès',
+        classe: '203',
+        docuseal_submission_id: 'sub_rome_211',
+        date_creation: '2026-09-09 11:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'LEFEVRE Alain', email: 'alain.lefevre@sfr.fr', statut: 'signed', date_signature: '2026-09-09 12:15', submitter_id: 'subm_r11a' },
+        parent2: { nom: 'LEFEVRE Martine', email: 'martine.lefevre@sfr.fr', statut: 'signed', date_signature: '2026-09-09 13:30', submitter_id: 'subm_r11b' },
+      },
+      {
+        id: 'insc-rome-12',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'LEMOINE',
+        eleve_prenom: 'Gabriel',
+        classe: '203',
+        docuseal_submission_id: 'sub_rome_212',
+        date_creation: '2026-09-09 11:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'LEMOINE Pascal', email: 'pascal.lemoine@gmail.com', statut: 'signed', date_signature: '2026-09-09 14:00', submitter_id: 'subm_r12a' },
+        parent2: { nom: 'LEMOINE Emilie', email: 'emilie.lemoine@gmail.com', statut: 'pending', submitter_id: 'subm_r12b' },
+      },
+      {
+        id: 'insc-rome-13',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'MARCHAND',
+        eleve_prenom: 'Sarah',
+        classe: '203',
+        docuseal_submission_id: 'sub_rome_213',
+        date_creation: '2026-09-09 14:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'MARCHAND Eric', email: 'eric.marchand@free.fr', statut: 'signed', date_signature: '2026-09-09 15:30', submitter_id: 'subm_r13a' },
+        parent2: { nom: 'MARCHAND Laurence', email: 'laurence.marchand@free.fr', statut: 'signed', date_signature: '2026-09-09 16:00', submitter_id: 'subm_r13b' },
+      },
+      {
+        id: 'insc-rome-14',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'MEYER',
+        eleve_prenom: 'Paul',
+        classe: '203',
+        docuseal_submission_id: 'sub_rome_214',
+        date_creation: '2026-09-09 14:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'MEYER Patrick', email: 'patrick.meyer@orange.fr', statut: 'signed', date_signature: '2026-09-09 16:30', submitter_id: 'subm_r14a' },
+        parent2: { nom: 'MEYER Sylvie', email: 'sylvie.meyer@orange.fr', statut: 'signed', date_signature: '2026-09-09 17:00', submitter_id: 'subm_r14b' },
+      },
+      {
+        id: 'insc-rome-15',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'NOEL',
+        eleve_prenom: 'Jade',
+        classe: '203',
+        docuseal_submission_id: 'sub_rome_215',
+        date_creation: '2026-09-09 15:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'NOEL Christophe', email: 'christophe.noel@gmail.com', statut: 'signed', date_signature: '2026-09-09 18:00', submitter_id: 'subm_r15a' },
+        parent2: { nom: 'NOEL Marie', email: 'marie.noel@gmail.com', statut: 'pending', submitter_id: 'subm_r15b' },
+      },
+      {
+        id: 'insc-rome-16',
+        voyage_id: voyageRomeId,
+        eleve_nom: 'PEREZ',
+        eleve_prenom: 'Raphaël',
+        classe: '203',
+        docuseal_submission_id: 'sub_rome_216',
+        date_creation: '2026-09-09 15:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'PEREZ François', email: 'francois.perez@yahoo.fr', statut: 'signed', date_signature: '2026-09-09 19:00', submitter_id: 'subm_r16a' },
+        parent2: { nom: 'PEREZ Carole', email: 'carole.perez@yahoo.fr', statut: 'signed', date_signature: '2026-09-09 19:30', submitter_id: 'subm_r16b' },
+      },
+    ];
+
+    voyageRome.total_inscrits = romeInscriptions.length;
+    voyageRome.total_complets = romeInscriptions.filter((i) => i.statut === 'COMPLET').length;
+    voyageRome.total_a_finaliser = romeInscriptions.filter((i) => i.statut === 'A_FINALISER').length;
+    voyageRome.total_non_signes = romeInscriptions.filter((i) => i.statut === 'NON_SIGNE').length;
+    voyageRome.total_doublons = countDoublons(romeInscriptions);
+
+    // Voyage 3 : Madrid & Tolède (Espagne) - Protégé par mot de passe prof 'Madrid2027'
+    const voyageMadridId = 'voyage-madrid-ndm';
+    const voyageMadrid: Voyage = {
+      id: voyageMadridId,
+      nom: 'Madrid & Tolède',
+      description: 'Séjour linguistique et découverte artistique à Madrid et dans la cité médiévale de Tolède',
+      destination: 'Madrid & Tolède (Espagne)',
+      date_depart: '2027-05-17',
+      date_retour: '2027-05-22',
+      etablissement: "L'établissement scolaire Notre Dame des Missions",
+      classes_concernees: ['301', '302'],
+      statut: 'inscriptions_ouvertes',
+      docuseal_instance_name: 'Madrid',
+      docuseal_url: 'https://madrid.docuseal.ndmissions.fr',
+      docuseal_template_id: '3',
+      connection_status: 'connected',
+      created_at: '2026-09-08 19:15',
+      updated_at: '2026-09-10 14:00',
+      last_sync_at: '2026-09-10 14:00',
+      last_sync_message: '✓ 15 dossiers synchronisés avec succès',
+      total_inscrits: 15,
+      total_complets: 10,
+      total_a_finaliser: 3,
+      total_non_signes: 2,
+      total_doublons: 0,
+      has_password: true,
+      mot_de_passe: 'Madrid2027',
+    };
+
+    const madridInscriptions: Inscription[] = [
+      {
+        id: 'insc-madrid-1',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'ALVAREZ',
+        eleve_prenom: 'Mateo',
+        classe: '301',
+        docuseal_submission_id: 'sub_madrid_301',
+        date_creation: '2026-09-08 20:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'ALVAREZ Javier', email: 'javier.alvarez@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:15', submitter_id: 'subm_m1a' },
+        parent2: { nom: 'ALVAREZ Elena', email: 'elena.alvarez@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:45', submitter_id: 'subm_m1b' },
+      },
+      {
+        id: 'insc-madrid-2',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'BENALI',
+        eleve_prenom: 'Rayan',
+        classe: '301',
+        docuseal_submission_id: 'sub_madrid_302',
+        date_creation: '2026-09-08 20:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'BENALI Karim', email: 'karim.benali@free.fr', statut: 'signed', date_signature: '2026-09-09 08:30', submitter_id: 'subm_m2a' },
+        parent2: { nom: 'BENALI Samia', email: 'samia.benali@free.fr', statut: 'signed', date_signature: '2026-09-09 09:15', submitter_id: 'subm_m2b' },
+      },
+      {
+        id: 'insc-madrid-3',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'CLEMENT',
+        eleve_prenom: 'Louise',
+        classe: '301',
+        docuseal_submission_id: 'sub_madrid_303',
+        date_creation: '2026-09-08 21:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'CLEMENT Didier', email: 'didier.clement@orange.fr', statut: 'signed', date_signature: '2026-09-09 09:45', submitter_id: 'subm_m3a' },
+        parent2: { nom: 'CLEMENT Béatrice', email: 'beatrice.clement@orange.fr', statut: 'signed', date_signature: '2026-09-09 10:15', submitter_id: 'subm_m3b' },
+      },
+      {
+        id: 'insc-madrid-4',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'COUSIN',
+        eleve_prenom: 'Arthur',
+        classe: '301',
+        docuseal_submission_id: 'sub_madrid_304',
+        date_creation: '2026-09-09 08:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'COUSIN Thierry', email: 'thierry.cousin@sfr.fr', statut: 'signed', date_signature: '2026-09-09 08:30', submitter_id: 'subm_m4a' },
+        parent2: { nom: 'COUSIN Sandra', email: 'sandra.cousin@sfr.fr', statut: 'pending', submitter_id: 'subm_m4b' },
+      },
+      {
+        id: 'insc-madrid-5',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'DELATTRE',
+        eleve_prenom: 'Zoé',
+        classe: '301',
+        docuseal_submission_id: 'sub_madrid_305',
+        date_creation: '2026-09-09 08:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'DELATTRE Vincent', email: 'vincent.delattre@gmail.com', statut: 'signed', date_signature: '2026-09-09 10:30', submitter_id: 'subm_m5a' },
+        parent2: { nom: 'DELATTRE Julie', email: 'julie.delattre@gmail.com', statut: 'signed', date_signature: '2026-09-09 11:00', submitter_id: 'subm_m5b' },
+      },
+      {
+        id: 'insc-madrid-6',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'DUMONT',
+        eleve_prenom: 'Hugo',
+        classe: '301',
+        docuseal_submission_id: 'sub_madrid_306',
+        date_creation: '2026-09-09 09:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 0,
+        statut: 'NON_SIGNE',
+        parent1: { nom: 'DUMONT Frédéric', email: 'frederic.dumont@free.fr', statut: 'pending', submitter_id: 'subm_m6a' },
+        parent2: { nom: 'DUMONT Sonia', email: 'sonia.dumont@free.fr', statut: 'pending', submitter_id: 'subm_m6b' },
+      },
+      {
+        id: 'insc-madrid-7',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'GAILLARD',
+        eleve_prenom: 'Noah',
+        classe: '301',
+        docuseal_submission_id: 'sub_madrid_307',
+        date_creation: '2026-09-09 09:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'GAILLARD Yann', email: 'yann.gaillard@orange.fr', statut: 'signed', date_signature: '2026-09-09 11:45', submitter_id: 'subm_m7a' },
+        parent2: { nom: 'GAILLARD Estelle', email: 'estelle.gaillard@orange.fr', statut: 'signed', date_signature: '2026-09-09 12:15', submitter_id: 'subm_m7b' },
+      },
+      {
+        id: 'insc-madrid-8',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'GIRARD',
+        eleve_prenom: 'Léo',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_308',
+        date_creation: '2026-09-09 10:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'GIRARD Nicolas', email: 'nicolas.girard@gmail.com', statut: 'signed', date_signature: '2026-09-09 13:00', submitter_id: 'subm_m8a' },
+        parent2: { nom: 'GIRARD Audrey', email: 'audrey.girard@gmail.com', statut: 'signed', date_signature: '2026-09-09 13:30', submitter_id: 'subm_m8b' },
+      },
+      {
+        id: 'insc-madrid-9',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'GUILLOU',
+        eleve_prenom: 'Emma',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_309',
+        date_creation: '2026-09-09 10:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'GUILLOU Erwan', email: 'erwan.guillou@free.fr', statut: 'signed', date_signature: '2026-09-09 14:00', submitter_id: 'subm_m9a' },
+        parent2: { nom: 'GUILLOU Brigitte', email: 'brigitte.guillou@free.fr', statut: 'signed', date_signature: '2026-09-09 14:30', submitter_id: 'subm_m9b' },
+      },
+      {
+        id: 'insc-madrid-10',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'HUBERT',
+        eleve_prenom: 'Théo',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_310',
+        date_creation: '2026-09-09 11:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'HUBERT Sébastien', email: 'sebastien.hubert@orange.fr', statut: 'signed', date_signature: '2026-09-09 15:00', submitter_id: 'subm_m10a' },
+        parent2: { nom: 'HUBERT Céline', email: 'celine.hubert@orange.fr', statut: 'signed', date_signature: '2026-09-09 15:30', submitter_id: 'subm_m10b' },
+      },
+      {
+        id: 'insc-madrid-11',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'JOLY',
+        eleve_prenom: 'Chloé',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_311',
+        date_creation: '2026-09-09 11:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'JOLY Damien', email: 'damien.joly@sfr.fr', statut: 'signed', date_signature: '2026-09-09 16:00', submitter_id: 'subm_m11a' },
+        parent2: { nom: 'JOLY Patricia', email: 'patricia.joly@sfr.fr', statut: 'pending', submitter_id: 'subm_m11b' },
+      },
+      {
+        id: 'insc-madrid-12',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'LAMBERT',
+        eleve_prenom: 'Thomas',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_312',
+        date_creation: '2026-09-09 14:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'LAMBERT Philippe', email: 'philippe.lambert@gmail.com', statut: 'signed', date_signature: '2026-09-09 16:30', submitter_id: 'subm_m12a' },
+        parent2: { nom: 'LAMBERT Sylvie', email: 'sylvie.lambert@gmail.com', statut: 'signed', date_signature: '2026-09-09 17:00', submitter_id: 'subm_m12b' },
+      },
+      {
+        id: 'insc-madrid-13',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'LECLERC',
+        eleve_prenom: 'Eva',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_313',
+        date_creation: '2026-09-09 14:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'LECLERC Jérôme', email: 'jerome.leclerc@free.fr', statut: 'signed', date_signature: '2026-09-09 17:30', submitter_id: 'subm_m13a' },
+        parent2: { nom: 'LECLERC Karine', email: 'karine.leclerc@free.fr', statut: 'signed', date_signature: '2026-09-09 18:00', submitter_id: 'subm_m13b' },
+      },
+      {
+        id: 'insc-madrid-14',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'MAURICE',
+        eleve_prenom: 'Antoine',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_314',
+        date_creation: '2026-09-09 15:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 0,
+        statut: 'NON_SIGNE',
+        parent1: { nom: 'MAURICE Hervé', email: 'herve.maurice@orange.fr', statut: 'pending', submitter_id: 'subm_m14a' },
+        parent2: { nom: 'MAURICE Caroline', email: 'caroline.maurice@orange.fr', statut: 'pending', submitter_id: 'subm_m14b' },
+      },
+      {
+        id: 'insc-madrid-15',
+        voyage_id: voyageMadridId,
+        eleve_nom: 'PICARD',
+        eleve_prenom: 'Romane',
+        classe: '302',
+        docuseal_submission_id: 'sub_madrid_315',
+        date_creation: '2026-09-09 15:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'PICARD Christian', email: 'christian.picard@gmail.com', statut: 'signed', date_signature: '2026-09-09 19:00', submitter_id: 'subm_m15a' },
+        parent2: { nom: 'PICARD Véronique', email: 'veronique.picard@gmail.com', statut: 'pending', submitter_id: 'subm_m15b' },
+      },
+    ];
+
+    voyageMadrid.total_inscrits = madridInscriptions.length;
+    voyageMadrid.total_complets = madridInscriptions.filter((i) => i.statut === 'COMPLET').length;
+    voyageMadrid.total_a_finaliser = madridInscriptions.filter((i) => i.statut === 'A_FINALISER').length;
+    voyageMadrid.total_non_signes = madridInscriptions.filter((i) => i.statut === 'NON_SIGNE').length;
+    voyageMadrid.total_doublons = countDoublons(madridInscriptions);
+
+    // Voyage 4 : Berlin & Histoire (Allemagne) - Ouvert sans mot de passe
+    const voyageBerlinId = 'voyage-berlin-ndm';
+    const voyageBerlin: Voyage = {
+      id: voyageBerlinId,
+      nom: 'Berlin & Histoire',
+      description: 'Voyage mémoriel et culturel à Berlin (Mur de Berlin, Bundestag, Île aux Musées)',
+      destination: 'Berlin (Allemagne)',
+      date_depart: '2027-06-01',
+      date_retour: '2027-06-06',
+      etablissement: "L'établissement scolaire Notre Dame des Missions",
+      classes_concernees: ['401', '402'],
+      statut: 'inscriptions_ouvertes',
+      docuseal_instance_name: 'Berlin',
+      docuseal_url: 'https://berlin.docuseal.ndmissions.fr',
+      docuseal_template_id: '4',
+      connection_status: 'connected',
+      created_at: '2026-09-08 19:20',
+      updated_at: '2026-09-10 14:00',
+      last_sync_at: '2026-09-10 14:00',
+      last_sync_message: '✓ 14 dossiers synchronisés avec succès',
+      total_inscrits: 14,
+      total_complets: 11,
+      total_a_finaliser: 2,
+      total_non_signes: 1,
+      total_doublons: 0,
+      has_password: false,
+    };
+
+    const berlinInscriptions: Inscription[] = [
+      {
+        id: 'insc-berlin-1',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'BECKER',
+        eleve_prenom: 'Florian',
+        classe: '401',
+        docuseal_submission_id: 'sub_berlin_401',
+        date_creation: '2026-09-08 20:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'BECKER Klaus', email: 'klaus.becker@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:00', submitter_id: 'subm_b1a' },
+        parent2: { nom: 'BECKER Anja', email: 'anja.becker@gmail.com', statut: 'signed', date_signature: '2026-09-08 21:30', submitter_id: 'subm_b1b' },
+      },
+      {
+        id: 'insc-berlin-2',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'BOULANGER',
+        eleve_prenom: 'Lisa',
+        classe: '401',
+        docuseal_submission_id: 'sub_berlin_402',
+        date_creation: '2026-09-08 20:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'BOULANGER Marc', email: 'marc.boulanger@orange.fr', statut: 'signed', date_signature: '2026-09-09 08:30', submitter_id: 'subm_b2a' },
+        parent2: { nom: 'BOULANGER Christine', email: 'christine.boulanger@orange.fr', statut: 'signed', date_signature: '2026-09-09 09:00', submitter_id: 'subm_b2b' },
+      },
+      {
+        id: 'insc-berlin-3',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'COHEN',
+        eleve_prenom: 'Samuel',
+        classe: '401',
+        docuseal_submission_id: 'sub_berlin_403',
+        date_creation: '2026-09-08 21:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'COHEN David', email: 'david.cohen@free.fr', statut: 'signed', date_signature: '2026-09-09 09:30', submitter_id: 'subm_b3a' },
+        parent2: { nom: 'COHEN Judith', email: 'judith.cohen@free.fr', statut: 'signed', date_signature: '2026-09-09 10:00', submitter_id: 'subm_b3b' },
+      },
+      {
+        id: 'insc-berlin-4',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'DAVID',
+        eleve_prenom: 'Mathys',
+        classe: '401',
+        docuseal_submission_id: 'sub_berlin_404',
+        date_creation: '2026-09-09 08:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'DAVID Stéphane', email: 'stephane.david@sfr.fr', statut: 'signed', date_signature: '2026-09-09 08:30', submitter_id: 'subm_b4a' },
+        parent2: { nom: 'DAVID Corinne', email: 'corinne.david@sfr.fr', statut: 'pending', submitter_id: 'subm_b4b' },
+      },
+      {
+        id: 'insc-berlin-5',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'DUPUIS',
+        eleve_prenom: 'Alice',
+        classe: '401',
+        docuseal_submission_id: 'sub_berlin_405',
+        date_creation: '2026-09-09 08:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'DUPUIS Bertrand', email: 'bertrand.dupuis@gmail.com', statut: 'signed', date_signature: '2026-09-09 10:30', submitter_id: 'subm_b5a' },
+        parent2: { nom: 'DUPUIS Hélène', email: 'helene.dupuis@gmail.com', statut: 'signed', date_signature: '2026-09-09 11:00', submitter_id: 'subm_b5b' },
+      },
+      {
+        id: 'insc-berlin-6',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'FISCHER',
+        eleve_prenom: 'Axel',
+        classe: '401',
+        docuseal_submission_id: 'sub_berlin_406',
+        date_creation: '2026-09-09 09:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'FISCHER Günter', email: 'gunter.fischer@free.fr', statut: 'signed', date_signature: '2026-09-09 11:30', submitter_id: 'subm_b6a' },
+        parent2: { nom: 'FISCHER Brigitte', email: 'brigitte.fischer@free.fr', statut: 'signed', date_signature: '2026-09-09 12:00', submitter_id: 'subm_b6b' },
+      },
+      {
+        id: 'insc-berlin-7',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'GAULTIER',
+        eleve_prenom: 'Louise',
+        classe: '401',
+        docuseal_submission_id: 'sub_berlin_407',
+        date_creation: '2026-09-09 09:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'GAULTIER Jean', email: 'jean.gaultier@orange.fr', statut: 'signed', date_signature: '2026-09-09 12:30', submitter_id: 'subm_b7a' },
+        parent2: { nom: 'GAULTIER Monique', email: 'monique.gaultier@orange.fr', statut: 'signed', date_signature: '2026-09-09 13:00', submitter_id: 'subm_b7b' },
+      },
+      {
+        id: 'insc-berlin-8',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'HERVE',
+        eleve_prenom: 'Bastien',
+        classe: '402',
+        docuseal_submission_id: 'sub_berlin_408',
+        date_creation: '2026-09-09 10:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'HERVE Thierry', email: 'thierry.herve@gmail.com', statut: 'signed', date_signature: '2026-09-09 13:30', submitter_id: 'subm_b8a' },
+        parent2: { nom: 'HERVE Sandrine', email: 'sandrine.herve@gmail.com', statut: 'signed', date_signature: '2026-09-09 14:00', submitter_id: 'subm_b8b' },
+      },
+      {
+        id: 'insc-berlin-9',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'LANGLOIS',
+        eleve_prenom: 'Victor',
+        classe: '402',
+        docuseal_submission_id: 'sub_berlin_409',
+        date_creation: '2026-09-09 10:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'LANGLOIS Pascal', email: 'pascal.langlois@free.fr', statut: 'signed', date_signature: '2026-09-09 14:30', submitter_id: 'subm_b9a' },
+        parent2: { nom: 'LANGLOIS Béatrice', email: 'beatrice.langlois@free.fr', statut: 'signed', date_signature: '2026-09-09 15:00', submitter_id: 'subm_b9b' },
+      },
+      {
+        id: 'insc-berlin-10',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'MOREL',
+        eleve_prenom: 'Juliette',
+        classe: '402',
+        docuseal_submission_id: 'sub_berlin_410',
+        date_creation: '2026-09-09 11:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'MOREL Laurent', email: 'laurent.morel@orange.fr', statut: 'signed', date_signature: '2026-09-09 15:30', submitter_id: 'subm_b10a' },
+        parent2: { nom: 'MOREL Sophie', email: 'sophie.morel@orange.fr', statut: 'signed', date_signature: '2026-09-09 16:00', submitter_id: 'subm_b10b' },
+      },
+      {
+        id: 'insc-berlin-11',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'PASQUIER',
+        eleve_prenom: 'Timothée',
+        classe: '402',
+        docuseal_submission_id: 'sub_berlin_411',
+        date_creation: '2026-09-09 11:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 1,
+        statut: 'A_FINALISER',
+        parent1: { nom: 'PASQUIER Pierre', email: 'pierre.pasquier@sfr.fr', statut: 'signed', date_signature: '2026-09-09 16:30', submitter_id: 'subm_b11a' },
+        parent2: { nom: 'PASQUIER Valérie', email: 'valerie.pasquier@sfr.fr', statut: 'pending', submitter_id: 'subm_b11b' },
+      },
+      {
+        id: 'insc-berlin-12',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'RENARD',
+        eleve_prenom: 'Simon',
+        classe: '402',
+        docuseal_submission_id: 'sub_berlin_412',
+        date_creation: '2026-09-09 14:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'RENARD Christophe', email: 'christophe.renard@gmail.com', statut: 'signed', date_signature: '2026-09-09 17:00', submitter_id: 'subm_b12a' },
+        parent2: { nom: 'RENARD Claire', email: 'claire.renard@gmail.com', statut: 'signed', date_signature: '2026-09-09 17:30', submitter_id: 'subm_b12b' },
+      },
+      {
+        id: 'insc-berlin-13',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'SCHMITT',
+        eleve_prenom: 'Pauline',
+        classe: '402',
+        docuseal_submission_id: 'sub_berlin_413',
+        date_creation: '2026-09-09 14:30',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 0,
+        statut: 'NON_SIGNE',
+        parent1: { nom: 'SCHMITT Eric', email: 'eric.schmitt@free.fr', statut: 'pending', submitter_id: 'subm_b13a' },
+        parent2: { nom: 'SCHMITT Isabelle', email: 'isabelle.schmitt@free.fr', statut: 'pending', submitter_id: 'subm_b13b' },
+      },
+      {
+        id: 'insc-berlin-14',
+        voyage_id: voyageBerlinId,
+        eleve_nom: 'TISSIER',
+        eleve_prenom: 'Gaspard',
+        classe: '402',
+        docuseal_submission_id: 'sub_berlin_414',
+        date_creation: '2026-09-09 15:00',
+        date_derniere_synchronisation: '2026-09-10 14:00',
+        nombre_signatures: 2,
+        statut: 'COMPLET',
+        parent1: { nom: 'TISSIER François', email: 'francois.tissier@orange.fr', statut: 'signed', date_signature: '2026-09-09 18:00', submitter_id: 'subm_b14a' },
+        parent2: { nom: 'TISSIER Nadine', email: 'nadine.tissier@orange.fr', statut: 'signed', date_signature: '2026-09-09 18:30', submitter_id: 'subm_b14b' },
+      },
+    ];
+
+    voyageBerlin.total_inscrits = berlinInscriptions.length;
+    voyageBerlin.total_complets = berlinInscriptions.filter((i) => i.statut === 'COMPLET').length;
+    voyageBerlin.total_a_finaliser = berlinInscriptions.filter((i) => i.statut === 'A_FINALISER').length;
+    voyageBerlin.total_non_signes = berlinInscriptions.filter((i) => i.statut === 'NON_SIGNE').length;
+    voyageBerlin.total_doublons = countDoublons(berlinInscriptions);
+
+    this.data.voyages = [voyage, voyageRome, voyageMadrid, voyageBerlin];
     this.data.inscriptions[voyageId] = demoInscriptions;
+    this.data.inscriptions[voyageRomeId] = romeInscriptions;
+    this.data.inscriptions[voyageMadridId] = madridInscriptions;
+    this.data.inscriptions[voyageBerlinId] = berlinInscriptions;
+
+    this.addLog({
+      voyage_id: 'system',
+      voyage_nom: 'Tous les voyages',
+      type: 'auto_sync',
+      status: 'success',
+      message: 'Initialisation de 4 voyages scolaires (Londres, Rome, Madrid, Berlin) avec listes d\'élèves.',
+      inscriptions_count: demoInscriptions.length + romeInscriptions.length + madridInscriptions.length + berlinInscriptions.length,
+      new_inscriptions: demoInscriptions.length + romeInscriptions.length + madridInscriptions.length + berlinInscriptions.length,
+    });
+
     this.saveToFile();
+  }
+
+  seedDefaultLondresVoyage(): void {
+    this.seedDefaultVoyages();
   }
 
   // Clear all data and reset to completely clean state
@@ -1796,6 +2563,7 @@ export class Database {
     if (this.data.logs.length > 200) {
       this.data.logs.pop();
     }
+    this.saveToFile();
   }
 
   getLogs(limit = 50): SyncLogEntry[] {
@@ -1804,15 +2572,17 @@ export class Database {
 
   // Admin authentication
   verifyAdminPassword(password: string): boolean {
+    const clean = (password || '').trim();
     const envPassword = process.env.ADMIN_PASSWORD;
-    if (envPassword && password === envPassword) {
+    if (envPassword && (clean === envPassword || clean.toLowerCase() === envPassword.toLowerCase())) {
       return true;
     }
-    return password === this.data.adminPasswordHash;
+    const current = (this.data.adminPasswordHash || 'Gafa8432').trim();
+    return clean === current || clean.toLowerCase() === current.toLowerCase();
   }
 
   setAdminPassword(newPassword: string): void {
-    this.data.adminPasswordHash = newPassword;
+    this.data.adminPasswordHash = newPassword.trim();
     this.saveToFile();
   }
 
@@ -1829,7 +2599,7 @@ export class Database {
   verifyConsultationPassword(password: string): boolean {
     const clean = (password || '').trim();
     const current = (this.data.consultationPassword || 'Compta2027').trim();
-    return clean === current;
+    return clean === current || clean.toLowerCase() === current.toLowerCase();
   }
 }
 

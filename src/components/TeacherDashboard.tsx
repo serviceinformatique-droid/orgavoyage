@@ -79,7 +79,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       if (voyagePassword) headers['x-voyage-password'] = voyagePassword;
       const adminToken = sessionStorage.getItem('ndm_admin_token');
       if (isAdmin && adminToken) headers['x-admin-token'] = adminToken;
-      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token') || (isConsultation ? 'consultation-token-active' : '');
       if (isConsultation && cToken) headers['x-consultation-token'] = cToken;
 
       const res = await fetch(`/api/voyages/${currentVoyage.id}/inscriptions`, { headers });
@@ -114,7 +114,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       if (isAdmin && adminToken) {
         headers['x-admin-token'] = adminToken;
       }
-      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token') || (isConsultation ? 'consultation-token-active' : '');
       if (isConsultation && cToken) {
         headers['x-consultation-token'] = cToken;
       }
@@ -893,7 +893,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     <span>Chargement des inscriptions...</span>
                   </td>
                 </tr>
-              ) : isLockedByPassword || (currentVoyage?.has_password && !isAdmin && !voyagePassword) ? (
+              ) : !isConsultation && (isLockedByPassword || (currentVoyage?.has_password && !isAdmin && !voyagePassword)) ? (
                 <tr>
                   <td colSpan={7} className="py-14 text-center">
                     <div className="max-w-md mx-auto p-6 bg-slate-50 border border-slate-200 rounded-2xl">

@@ -41,14 +41,14 @@ export default function App() {
   const [passwordModalVoyage, setPasswordModalVoyage] = useState<Voyage | null>(null);
 
   // Fetch voyages list from server
-  const fetchVoyages = async (token?: string) => {
+  const fetchVoyages = async (token?: string, cTokenParam?: string) => {
     try {
       const activeToken = token !== undefined ? token : adminToken;
       const headers: Record<string, string> = {};
       if (activeToken) {
         headers['x-admin-token'] = activeToken;
       }
-      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      const cToken = cTokenParam || consultationToken || sessionStorage.getItem('ndm_consultation_token') || (isConsultation ? 'consultation-token-active' : '');
       if (cToken) {
         headers['x-consultation-token'] = cToken;
       }
@@ -111,7 +111,7 @@ export default function App() {
       sessionStorage.setItem('ndm_consultation_token', token);
       sessionStorage.removeItem('ndm_admin_token');
       setCurrentTab('teacher');
-      fetchVoyages();
+      fetchVoyages(undefined, token);
     }
   };
 
