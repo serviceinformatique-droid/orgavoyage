@@ -158,6 +158,193 @@ export function countDoublons(list: Inscription[]): number {
   }).length;
 }
 
+// Helpers for extracting fields and resolving student class from DocuSeal
+export function cleanFieldValue(val: any): string | null {
+  if (val === undefined || val === null) return null;
+  if (typeof val === 'string') {
+    const s = val.trim();
+    return s.length > 0 ? s : null;
+  }
+  if (typeof val === 'number' || typeof val === 'boolean') {
+    return String(val);
+  }
+  if (Array.isArray(val)) {
+    for (const item of val) {
+      const res = cleanFieldValue(item);
+      if (res) return res;
+    }
+    return null;
+  }
+  if (typeof val === 'object') {
+    if (val.value !== undefined && val.value !== null) return cleanFieldValue(val.value);
+    if (val.label !== undefined && val.label !== null) return cleanFieldValue(val.label);
+    if (val.name !== undefined && val.name !== null) return cleanFieldValue(val.name);
+    if (val.text !== undefined && val.text !== null) return cleanFieldValue(val.text);
+    if (val.selected !== undefined && val.selected !== null) return cleanFieldValue(val.selected);
+    for (const [subK, subV] of Object.entries(val)) {
+      if (subV === true) return subK.trim();
+    }
+  }
+  return null;
+}
+
+export function collectFieldsFromSources(sources: any[]): Record<string, string> {
+  const targetMap: Record<string, string> = {};
+
+  const add = (rawKey: any, rawVal: any) => {
+    if (!rawKey) return;
+    const keyStr = String(rawKey).trim();
+    if (!keyStr) return;
+    const valStr = cleanFieldValue(rawVal);
+    if (!valStr) return;
+    // Don't overwrite an existing non-empty value with empty
+    if (!targetMap[keyStr] || targetMap[keyStr].trim() === '') {
+      targetMap[keyStr] = valStr.trim();
+    }
+  };
+
+  const ingest = (item: any) => {
+    if (!item) return;
+    if (Array.isArray(item)) {
+      for (const el of item) {
+        if (!el) continue;
+        const key = el.name || el.field || el.field_name || el.title || el.label || el.key;
+        const val = el.value !== undefined && el.value !== null ? el.value : el.default_value;
+        if (key && val !== undefined) {
+          add(key, val);
+        } else if (typeof el === 'object') {
+          for (const [k, v] of Object.entries(el)) {
+            if (['id', 'created_at', 'updated_at', 'slug', 'status'].includes(k)) continue;
+            add(k, v);
+          }
+        }
+      }
+    } else if (typeof item === 'object') {
+      for (const [k, v] of Object.entries(item)) {
+        if (['id', 'created_at', 'updated_at', 'slug', 'status', 'template_id', 'submission_id', 'documents'].includes(k)) continue;
+        if (v && typeof v === 'object' && !Array.isArray(v) && ('value' in v || 'label' in v || 'text' in v)) {
+          const subKey = (v as any).name || (v as any).field || k;
+          add(subKey, (v as any).value !== undefined ? (v as any).value : ((v as any).label ?? (v as any).text));
+        } else {
+          add(k, v);
+        }
+      }
+    }
+  };
+
+  for (const src of sources) {
+    ingest(src);
+  }
+
+  return targetMap;
+}
+
+export function normalizeString(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+export function findNormalizedVal(map: Record<string, string>, candidates: string[], partialKeywordMatch = false): string | undefined {
+  // 1. Exact normalized match
+  for (const cand of candidates) {
+    const cleanCand = normalizeString(cand);
+    for (const [k, val] of Object.entries(map)) {
+      if (!val || !val.trim()) continue;
+      if (normalizeString(k) === cleanCand) {
+        return val.trim();
+      }
+    }
+  }
+
+  // 2. Partial match if requested
+  if (partialKeywordMatch) {
+    for (const cand of candidates) {
+      const cleanCand = normalizeString(cand);
+      if (cleanCand.length < 3) continue;
+      for (const [k, val] of Object.entries(map)) {
+        if (!val || !val.trim()) continue;
+        const cleanK = normalizeString(k);
+        if (cleanK.includes(cleanCand) || cleanCand.includes(cleanK)) {
+          return val.trim();
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function extractClasse(map: Record<string, string>, configuredClasses: string[] = []): string | undefined {
+  // 1. Exact candidate matches (comprehensive French school terminology)
+  const exactCandidates = [
+    'classe',
+    "classe de l'enfant",
+    'classe de l enfant',
+    'classe enfant',
+    "classe de l'eleve",
+    "classe de l eleve",
+    'classe eleve',
+    'division',
+    'classe actuelle',
+    'classe scolaire',
+    'division scolaire',
+    'classe1',
+    'classe 1',
+    'classe_1',
+    'enfant classe',
+    'eleve classe',
+    'division classe',
+    'niveau classe',
+    'classe niveau',
+    'section classe',
+    'classe section',
+    'class',
+    'grade',
+    'classe de leleve',
+    'classe de lenfant',
+  ];
+
+  const exactFound = findNormalizedVal(map, exactCandidates);
+  if (exactFound) return exactFound;
+
+  // 2. Any field containing 'classe' (excluding 'classement') or 'division'
+  for (const [k, val] of Object.entries(map)) {
+    if (!val || !val.trim()) continue;
+    const cleanK = normalizeString(k);
+    if ((cleanK.includes('classe') && !cleanK.includes('classement')) || cleanK.includes('division')) {
+      return val.trim();
+    }
+  }
+
+  // 3. Match any field value against configured classes for the trip (e.g. ['T01', 'T02', 'Terminale 1'])
+  if (configuredClasses && configuredClasses.length > 0) {
+    for (const [k, val] of Object.entries(map)) {
+      const trimmed = (val || '').trim();
+      if (!trimmed) continue;
+      for (const conf of configuredClasses) {
+        if (conf && conf !== 'Toutes' && trimmed.toLowerCase() === conf.toLowerCase()) {
+          return conf;
+        }
+      }
+    }
+  }
+
+  // 4. Match against standard French school class patterns (T01, 101, 201, 6A, 3eme, Terminale 1, etc.)
+  const classPattern = /^(T[0-9]{1,2}|[1-6][0-9]{2}|[1-6][eè]?(?:me)?\s*[A-Za-z0-9]+|(?:Terminale|Premi[eè]re|Seconde|[1-6][eè]me)\s*[A-Za-z0-9]*)$/i;
+  for (const [k, val] of Object.entries(map)) {
+    const trimmed = (val || '').trim();
+    if (!trimmed) continue;
+    if (classPattern.test(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return undefined;
+}
+
 // In-memory Database instance with disk persistence
 export class Database {
   private data: DatabaseData;
@@ -1792,6 +1979,31 @@ export class Database {
     return undefined;
   }
 
+  // Update a single inscription (e.g. modify student class or details)
+  updateInscription(id: string, partial: Partial<Inscription>): Inscription | undefined {
+    for (const [voyageId, list] of Object.entries(this.data.inscriptions)) {
+      const idx = list.findIndex((i) => i.id === id);
+      if (idx !== -1) {
+        list[idx] = {
+          ...list[idx],
+          ...partial,
+          date_derniere_synchronisation: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        };
+        const voyage = this.data.voyages.find((v) => v.id === voyageId);
+        if (voyage) {
+          voyage.total_complets = list.filter((i) => i.statut === 'COMPLET').length;
+          voyage.total_a_finaliser = list.filter((i) => i.statut === 'A_FINALISER').length;
+          voyage.total_non_signes = list.filter((i) => i.statut === 'NON_SIGNE').length;
+          voyage.total_doublons = countDoublons(list);
+          voyage.updated_at = new Date().toISOString().replace('T', ' ').substring(0, 16);
+        }
+        this.saveToFile();
+        return list[idx];
+      }
+    }
+    return undefined;
+  }
+
   // Trigger 100% REAL sync with DocuSeal API
   async syncVoyage(voyageId: string): Promise<{ success: boolean; message: string; stats: { analyzed: number; newInscriptions: number; newSignatures: number } }> {
     const v = this.data.voyages.find((x) => x.id === voyageId);
@@ -1924,224 +2136,262 @@ export class Database {
         submittersBySub.get(sid)!.push(s);
       }
 
-      // Helper to find normalized value from field dictionary
-      const findVal = (map: Record<string, string>, candidates: string[]): string | undefined => {
-        for (const cand of candidates) {
-          const cleanCand = cand
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/[^a-z0-9]/g, '');
-          for (const [k, val] of Object.entries(map)) {
-            if (!val || !String(val).trim()) continue;
-            const cleanKey = k
-              .toLowerCase()
-              .normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '')
-              .replace(/[^a-z0-9]/g, '');
-            if (cleanKey === cleanCand) {
-              return String(val).trim();
-            }
-          }
-        }
-        return undefined;
-      };
-
       // Filter out archived submissions (in DocuSeal UI, archived submissions are excluded from the active list: 128 active vs 27 archived)
       const activeSubs = allSubs.filter((sub: any) => !sub.archived_at);
       const archivedCount = allSubs.length - activeSubs.length;
 
-      // Map real DocuSeal submissions
-      const mappedInscriptions: Inscription[] = activeSubs.map((sub: any, idx: number) => {
-        const sid = Number(sub.id);
-        const detailedSubmitters = submittersBySub.get(sid) || (Array.isArray(sub.submitters) ? sub.submitters : []);
+      // Map real DocuSeal submissions (asynchronous with full field extraction)
+      const mappedInscriptions: Inscription[] = await Promise.all(
+        activeSubs.map(async (sub: any, idx: number) => {
+          const sid = Number(sub.id);
+          const detailedSubmitters = submittersBySub.get(sid) || (Array.isArray(sub.submitters) ? sub.submitters : []);
 
-        // Sort submitters: Première partie first, Deuxième partie second
-        const sortedSubmitters = [...detailedSubmitters].sort((a, b) => {
-          const rA = (a.role || '').toLowerCase();
-          const rB = (b.role || '').toLowerCase();
-          if (rA.includes('premi') || rA.includes('1')) return -1;
-          if (rB.includes('premi') || rB.includes('1')) return 1;
-          return (a.id || 0) - (b.id || 0);
-        });
+          // Sort submitters: Première partie first, Deuxième partie second
+          const sortedSubmitters = [...detailedSubmitters].sort((a, b) => {
+            const rA = (a.role || '').toLowerCase();
+            const rB = (b.role || '').toLowerCase();
+            if (rA.includes('premi') || rA.includes('1')) return -1;
+            if (rB.includes('premi') || rB.includes('1')) return 1;
+            return (a.id || 0) - (b.id || 0);
+          });
 
-        // Collect all field values across submitters and submission
-        const fieldMap: Record<string, string> = {};
-        for (const s of sortedSubmitters) {
-          for (const it of s.values || []) {
-            if (it && it.field && it.value !== undefined && it.value !== null) {
-              fieldMap[it.field] = String(it.value);
+          // Sources to collect fields from
+          const sourcesToInspect: any[] = [
+            sub.values,
+            sub.fields,
+            sub.data,
+            sub.template_fields,
+            sub.template?.fields,
+          ];
+
+          for (const s of sortedSubmitters) {
+            sourcesToInspect.push(s.fields);
+            sourcesToInspect.push(s.values);
+            sourcesToInspect.push(s.data);
+            sourcesToInspect.push(s.metadata);
+          }
+
+          if (Array.isArray(sub.submitters)) {
+            for (const s of sub.submitters) {
+              sourcesToInspect.push(s.fields);
+              sourcesToInspect.push(s.values);
+              sourcesToInspect.push(s.data);
             }
           }
-        }
-        if (Array.isArray(sub.values)) {
-          for (const it of sub.values) {
-            if (it && it.field && it.value !== undefined && it.value !== null) {
-              fieldMap[it.field] = String(it.value);
+
+          let fieldMap = collectFieldsFromSources(sourcesToInspect);
+
+          // If no fields could be extracted from list view, query single submission details
+          if (Object.keys(fieldMap).length === 0 && sub.id) {
+            try {
+              const singleRes = await fetch(`${cleanUrl}/api/submissions/${sub.id}`, {
+                headers: {
+                  'X-Auth-Token': v.docuseal_api_key?.trim() || '',
+                  'Authorization': `Bearer ${v.docuseal_api_key?.trim() || ''}`,
+                  'Content-Type': 'application/json',
+                },
+                signal: AbortSignal.timeout(5000),
+              });
+              if (singleRes.ok) {
+                const singleJson = await singleRes.json();
+                const singleSources = [
+                  singleJson.values,
+                  singleJson.fields,
+                  singleJson.data,
+                  ...(Array.isArray(singleJson.submitters) ? singleJson.submitters.map((s: any) => s.fields) : []),
+                  ...(Array.isArray(singleJson.submitters) ? singleJson.submitters.map((s: any) => s.values) : []),
+                  ...(Array.isArray(singleJson.submitters) ? singleJson.submitters.map((s: any) => s.data) : []),
+                ];
+                fieldMap = collectFieldsFromSources(singleSources);
+              }
+            } catch {
+              // Ignore single fetch timeout
             }
           }
-        }
 
-        const subP1 = sortedSubmitters[0] || {};
-        const subP2 = sortedSubmitters[1] || {};
+          const subP1 = sortedSubmitters[0] || {};
+          const subP2 = sortedSubmitters[1] || {};
 
-        // 1. Extract student names from form fields
-        const eleveNomFound = findVal(fieldMap, [
-          "nom de l'enfant",
-          "nom de l enfant",
-          "nom enfant",
-          "nom de l'eleve",
-          "nom de l eleve",
-          "nom eleve",
-          "nom de l'etudiant",
-          "nom etudiant",
-          "nom de famille de l'enfant",
-          "nom de famille de l'eleve",
-          "nom de famille",
-          "nom",
-        ]);
+          // 1. Extract student names from form fields
+          const eleveNomFound = findNormalizedVal(fieldMap, [
+            "nom de l'enfant",
+            "nom de l enfant",
+            "nom enfant",
+            "nom de l'eleve",
+            "nom de l eleve",
+            "nom eleve",
+            "nom de l'etudiant",
+            "nom etudiant",
+            "nom de famille de l'enfant",
+            "nom de famille de l'eleve",
+            "nom de famille",
+            "nom 2",
+            "nom_2",
+            "nom eleve 1",
+            "nom enfant 1",
+            "nom",
+          ], true);
 
-        const elevePrenomFound = findVal(fieldMap, [
-          "prenom de l'enfant",
-          "prenom de l enfant",
-          "prenom enfant",
-          "prenom de l'eleve",
-          "prenom de l eleve",
-          "prenom eleve",
-          "prenom de l'etudiant",
-          "prenom etudiant",
-          "prenom",
-        ]);
+          const elevePrenomFound = findNormalizedVal(fieldMap, [
+            "prenom de l'enfant",
+            "prenom de l enfant",
+            "prenom enfant",
+            "prenom de l'eleve",
+            "prenom de l eleve",
+            "prenom eleve",
+            "prenom de l'etudiant",
+            "prenom etudiant",
+            "prenom 2",
+            "prenom_2",
+            "prenom",
+          ], true);
 
-        const classeFound = findVal(fieldMap, [
-          "classe de l'enfant",
-          "classe de l enfant",
-          "classe enfant",
-          "classe de l'eleve",
-          "classe de l eleve",
-          "classe eleve",
-          "classe",
-          "division",
-          "classe actuelle",
-        ]);
+          // 2. Extract class (with intelligent fuzzy matching, configured classes, and school regex)
+          const classeFound = extractClasse(fieldMap, v.classes_concernees);
 
-        // Parent fields
-        const parentNomFound = findVal(fieldMap, [
-          "nom du responsable",
-          "nom responsable",
-          "nom du responsable 1",
-          "nom responsable 1",
-          "nom du parent",
-          "nom parent",
-          "nom du représentant légal",
-        ]);
-        const parentPrenomFound = findVal(fieldMap, [
-          "prenom du responsable",
-          "prenom responsable",
-          "prenom du responsable 1",
-          "prenom responsable 1",
-          "prenom du parent",
-          "prenom parent",
-        ]);
-        const parentTelFound = findVal(fieldMap, [
-          "telephone du responsable",
-          "telephone responsable",
-          "telephone du responsable 1",
-          "telephone",
-          "mobile",
-          "portable",
-          "numéro de téléphone",
-        ]);
+          // 3. Parent fields
+          const parentNomFound = findNormalizedVal(fieldMap, [
+            "nom du responsable",
+            "nom responsable",
+            "nom du responsable 1",
+            "nom responsable 1",
+            "nom du parent",
+            "nom parent",
+            "nom du représentant légal",
+            "nom 1",
+            "nom_1",
+          ]);
+          const parentPrenomFound = findNormalizedVal(fieldMap, [
+            "prenom du responsable",
+            "prenom responsable",
+            "prenom du responsable 1",
+            "prenom responsable 1",
+            "prenom du parent",
+            "prenom parent",
+            "prenom 1",
+            "prenom_1",
+          ]);
+          const parentTelFound = findNormalizedVal(fieldMap, [
+            "telephone du responsable",
+            "telephone responsable",
+            "telephone du responsable 1",
+            "telephone responsable 1",
+            "telephone parent",
+            "telephone",
+            "mobile",
+            "portable",
+            "numéro de téléphone",
+            "phone",
+          ], true);
 
-        // Fallbacks if form was not filled yet (0/2 signatures)
-        let eleveNom = eleveNomFound ? eleveNomFound.toUpperCase() : '';
-        let elevePrenom = elevePrenomFound ? (elevePrenomFound.charAt(0).toUpperCase() + elevePrenomFound.slice(1)) : '';
+          // Fallbacks if form was not filled yet
+          let eleveNom = eleveNomFound ? eleveNomFound.toUpperCase() : '';
+          let elevePrenom = elevePrenomFound ? (elevePrenomFound.charAt(0).toUpperCase() + elevePrenomFound.slice(1)) : '';
 
-        if (!eleveNom) {
-          if (subP1.name) {
-            const parts = subP1.name.trim().split(/\s+/);
-            eleveNom = parts.length > 1 ? parts.slice(1).join(' ').toUpperCase() : parts[0].toUpperCase();
-            if (!elevePrenom) elevePrenom = parts[0];
-          } else {
-            eleveNom = `DOSSIER #${sub.id || idx + 1}`;
-            elevePrenom = '(En attente)';
+          if (!eleveNom) {
+            if (subP1.name) {
+              const parts = subP1.name.trim().split(/\s+/);
+              eleveNom = parts.length > 1 ? parts.slice(1).join(' ').toUpperCase() : parts[0].toUpperCase();
+              if (!elevePrenom) elevePrenom = parts[0];
+            } else {
+              eleveNom = `DOSSIER #${sub.id || idx + 1}`;
+              elevePrenom = '(En attente)';
+            }
           }
-        }
 
-        const classe = classeFound || (v.classes_concernees[0] && v.classes_concernees[0] !== 'Toutes' ? v.classes_concernees[0] : 'Non spécifiée');
+          const subIdStr = String(sub.id || `sub_${idx + 1}`);
+          const existing = currentInscriptions.find((i) => i.docuseal_submission_id === subIdStr);
 
-        const p1Signed = subP1.status === 'completed' || Boolean(subP1.completed_at);
-        const p2Signed = subP2.status === 'completed' || Boolean(subP2.completed_at);
-
-        const hasOnlyOneParent = sortedSubmitters.length <= 1;
-        const sigCount = hasOnlyOneParent
-          ? (p1Signed ? 2 : 0) as 0 | 1 | 2
-          : ((p1Signed ? 1 : 0) + (p2Signed ? 1 : 0)) as 0 | 1 | 2;
-
-        const statut = sigCount === 2 ? 'COMPLET' : sigCount === 1 ? 'A_FINALISER' : 'NON_SIGNE';
-        const subIdStr = String(sub.id || `sub_${idx + 1}`);
-
-        if (!currentSubIds.has(subIdStr)) {
-          newInscriptionsCount++;
-        }
-
-        const docUrl = (subP1.documents && subP1.documents[0]?.url) ||
-          (subP2.documents && subP2.documents[0]?.url) ||
-          (sub.documents && sub.documents[0]?.url) ||
-          (sigCount === 2 ? `/api/inscriptions/insc-${v.id}-${subIdStr}/document` : undefined);
-
-        // Build parent 1 name
-        let parent1DisplayName = 'Responsable légal 1';
-        if (parentNomFound || parentPrenomFound) {
-          parent1DisplayName = `${(parentNomFound || '').toUpperCase()} ${parentPrenomFound || ''}`.trim();
-        } else if (subP1.name) {
-          parent1DisplayName = subP1.name;
-        } else if (subP1.email) {
-          parent1DisplayName = `En attente (${subP1.email})`;
-        }
-
-        // Build parent 2 name
-        let parent2DisplayName = hasOnlyOneParent ? 'Non requis (1 seul signataire)' : 'Responsable légal 2';
-        if (!hasOnlyOneParent) {
-          if (subP2.name) {
-            parent2DisplayName = subP2.name;
-          } else if (subP2.email) {
-            parent2DisplayName = subP2.email;
+          // Resolve final class:
+          // 1) Real class found from DocuSeal fields
+          // 2) Keep existing non-empty class if already present in DB
+          // 3) Default to first trip class if specific (e.g. T01)
+          // 4) Fallback to 'Non spécifiée'
+          let classe = classeFound;
+          if (!classe || classe === 'Non spécifiée') {
+            if (existing && existing.classe && existing.classe !== 'Non spécifiée') {
+              classe = existing.classe;
+            } else if (v.classes_concernees[0] && v.classes_concernees[0] !== 'Toutes') {
+              classe = v.classes_concernees[0];
+            } else {
+              classe = 'Non spécifiée';
+            }
           }
-        }
 
-        return {
-          id: `insc-${v.id}-${subIdStr}`,
-          voyage_id: v.id,
-          eleve_nom: eleveNom,
-          eleve_prenom: elevePrenom,
-          classe: classe,
-          docuseal_submission_id: subIdStr,
-          date_creation: sub.created_at ? sub.created_at.substring(0, 16).replace('T', ' ') : now,
-          date_derniere_synchronisation: now,
-          parent1: {
-            nom: parent1DisplayName,
-            email: subP1.email || '',
-            telephone: parentTelFound || subP1.phone || subP1.phone_number || '',
-            statut: p1Signed ? 'signed' : 'pending',
-            date_signature: subP1.completed_at ? subP1.completed_at.substring(0, 16).replace('T', ' ') : undefined,
-            submitter_id: String(subP1.id || `subm_${subIdStr}_p1`),
-            slug: subP1.slug || `sign-${subIdStr}-p1`,
-          },
-          parent2: {
-            nom: parent2DisplayName,
-            email: subP2.email || '',
-            telephone: subP2.phone || subP2.phone_number || '',
-            statut: hasOnlyOneParent ? 'signed' : (p2Signed ? 'signed' : 'pending'),
-            date_signature: subP2.completed_at ? subP2.completed_at.substring(0, 16).replace('T', ' ') : undefined,
-            submitter_id: String(subP2.id || `subm_${subIdStr}_p2`),
-            slug: subP2.slug || `sign-${subIdStr}-p2`,
-          },
-          nombre_signatures: sigCount,
-          statut: statut,
-          document_url: docUrl,
-        };
-      });
+          console.log(`[DocuSeal Sync] Dossier #${subIdStr} (${eleveNom} ${elevePrenom}): classe="${classe}" (DocuSeal found="${classeFound || 'none'}", fields count=${Object.keys(fieldMap).length})`);
+
+          const p1Signed = subP1.status === 'completed' || Boolean(subP1.completed_at);
+          const p2Signed = subP2.status === 'completed' || Boolean(subP2.completed_at);
+
+          const hasOnlyOneParent = sortedSubmitters.length <= 1;
+          const sigCount = hasOnlyOneParent
+            ? (p1Signed ? 2 : 0) as 0 | 1 | 2
+            : ((p1Signed ? 1 : 0) + (p2Signed ? 1 : 0)) as 0 | 1 | 2;
+
+          const statut = sigCount === 2 ? 'COMPLET' : sigCount === 1 ? 'A_FINALISER' : 'NON_SIGNE';
+
+          if (!currentSubIds.has(subIdStr)) {
+            newInscriptionsCount++;
+          }
+
+          const docUrl = (subP1.documents && subP1.documents[0]?.url) ||
+            (subP2.documents && subP2.documents[0]?.url) ||
+            (sub.documents && sub.documents[0]?.url) ||
+            (sigCount === 2 ? `/api/inscriptions/insc-${v.id}-${subIdStr}/document` : undefined);
+
+          // Build parent 1 name
+          let parent1DisplayName = 'Responsable légal 1';
+          if (parentNomFound || parentPrenomFound) {
+            parent1DisplayName = `${(parentNomFound || '').toUpperCase()} ${parentPrenomFound || ''}`.trim();
+          } else if (subP1.name) {
+            parent1DisplayName = subP1.name;
+          } else if (subP1.email) {
+            parent1DisplayName = `En attente (${subP1.email})`;
+          }
+
+          // Build parent 2 name
+          let parent2DisplayName = hasOnlyOneParent ? 'Non requis (1 seul signataire)' : 'Responsable légal 2';
+          if (!hasOnlyOneParent) {
+            if (subP2.name) {
+              parent2DisplayName = subP2.name;
+            } else if (subP2.email) {
+              parent2DisplayName = subP2.email;
+            }
+          }
+
+          return {
+            id: `insc-${v.id}-${subIdStr}`,
+            voyage_id: v.id,
+            eleve_nom: eleveNom,
+            eleve_prenom: elevePrenom,
+            classe: classe,
+            docuseal_submission_id: subIdStr,
+            date_creation: sub.created_at ? sub.created_at.substring(0, 16).replace('T', ' ') : now,
+            date_derniere_synchronisation: now,
+            parent1: {
+              nom: parent1DisplayName,
+              email: subP1.email || '',
+              telephone: parentTelFound || subP1.phone || subP1.phone_number || '',
+              statut: p1Signed ? 'signed' : 'pending',
+              date_signature: subP1.completed_at ? subP1.completed_at.substring(0, 16).replace('T', ' ') : undefined,
+              submitter_id: String(subP1.id || `subm_${subIdStr}_p1`),
+              slug: subP1.slug || `sign-${subIdStr}-p1`,
+            },
+            parent2: {
+              nom: parent2DisplayName,
+              email: subP2.email || '',
+              telephone: subP2.phone || subP2.phone_number || '',
+              statut: hasOnlyOneParent ? 'signed' : (p2Signed ? 'signed' : 'pending'),
+              date_signature: subP2.completed_at ? subP2.completed_at.substring(0, 16).replace('T', ' ') : undefined,
+              submitter_id: String(subP2.id || `subm_${subIdStr}_p2`),
+              slug: subP2.slug || `sign-${subIdStr}-p2`,
+            },
+            nombre_signatures: sigCount,
+            statut: statut,
+            document_url: docUrl,
+          };
+        })
+      );
 
       // Save strictly the real mapped inscriptions
       this.data.inscriptions[voyageId] = mappedInscriptions;
@@ -2238,6 +2488,26 @@ export class Database {
       if (item.nombre_signatures === 2) {
         item.document_url = `/api/inscriptions/${item.id}/document`;
       }
+
+      // Check if student class can be updated from incoming webhook fields
+      if (!item.classe || item.classe === 'Non spécifiée') {
+        const webhookSources = [
+          payload.data?.values,
+          payload.data?.fields,
+          payload.data?.data,
+          payload.values,
+          payload.fields,
+          ...(Array.isArray(payload.data?.submitters) ? payload.data.submitters.map((s: any) => s.fields) : []),
+          ...(Array.isArray(payload.data?.submitters) ? payload.data.submitters.map((s: any) => s.values) : []),
+          ...(Array.isArray(payload.data?.submitters) ? payload.data.submitters.map((s: any) => s.data) : []),
+        ];
+        const webhookMap = collectFieldsFromSources(webhookSources);
+        const webhookClasse = extractClasse(webhookMap, v.classes_concernees);
+        if (webhookClasse) {
+          item.classe = webhookClasse;
+        }
+      }
+
       item.date_derniere_synchronisation = now;
     }
 

@@ -24,6 +24,8 @@ import {
   Calculator,
   GraduationCap,
   Users,
+  Pencil,
+  X,
 } from 'lucide-react';
 import { StudentDetailModal } from './StudentDetailModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
@@ -72,6 +74,38 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [activeStudent, setActiveStudent] = useState<Inscription | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [showMassRelanceModal, setShowMassRelanceModal] = useState(false);
+  const [editingClasseStudent, setEditingClasseStudent] = useState<Inscription | null>(null);
+  const [newClasseValue, setNewClasseValue] = useState<string>('');
+  const [isSavingClasse, setIsSavingClasse] = useState<boolean>(false);
+
+  const handleSaveClasse = async () => {
+    if (!editingClasseStudent || !newClasseValue.trim()) return;
+    setIsSavingClasse(true);
+    try {
+      const res = await fetch(`/api/inscriptions/${editingClasseStudent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classe: newClasseValue.trim() }),
+      });
+      if (res.ok) {
+        setInscriptions((prev) =>
+          prev.map((i) => (i.id === editingClasseStudent.id ? { ...i, classe: newClasseValue.trim() } : i))
+        );
+        setAllTripInscriptions((prev) =>
+          prev.map((i) => (i.id === editingClasseStudent.id ? { ...i, classe: newClasseValue.trim() } : i))
+        );
+        if (activeStudent && activeStudent.id === editingClasseStudent.id) {
+          setActiveStudent((prev) => (prev ? { ...prev, classe: newClasseValue.trim() } : null));
+        }
+        setEditingClasseStudent(null);
+        if (onRefreshVoyages) onRefreshVoyages();
+      }
+    } catch (err) {
+      console.error('Erreur mise à jour classe:', err);
+    } finally {
+      setIsSavingClasse(false);
+    }
+  };
 
   const currentVoyage = voyages.find((v) => v.id === selectedVoyageId) || voyages[0];
 
@@ -1240,9 +1274,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                       {/* Class */}
                       <td className="py-3.5 px-3 text-center">
-                        <span className="inline-block px-2.5 py-0.5 rounded-md font-bold text-xs bg-slate-100 text-slate-700 border border-slate-200">
-                          {eleve.classe}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingClasseStudent(eleve);
+                            setNewClasseValue(eleve.classe === 'Non spécifiée' ? (currentVoyage.classes_concernees[0] && currentVoyage.classes_concernees[0] !== 'Toutes' ? currentVoyage.classes_concernees[0] : '') : eleve.classe);
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold text-xs border transition-all cursor-pointer group ${
+                            eleve.classe === 'Non spécifiée'
+                              ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                              : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border-slate-200 hover:border-emerald-300'
+                          }`}
+                          title="Cliquer pour modifier ou assigner la classe"
+                        >
+                          <span>{eleve.classe}</span>
+                          <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100 text-slate-500 group-hover:text-emerald-700" />
+                        </button>
                       </td>
 
                       {/* Signature Dots (● ●, ● ○, ○ ○) */}
@@ -1463,6 +1510,104 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     <Trash2 className="w-4 h-4" />
                     <span>Oui, supprimer</span>
                   </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Quick Edit Classe */}
+      {editingClasseStudent && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Modifier la classe de l'élève</h3>
+                  <p className="text-xs text-slate-500">
+                    <span className="font-bold text-slate-800">{editingClasseStudent.eleve_nom} {editingClasseStudent.eleve_prenom}</span> (Réf #{editingClasseStudent.docuseal_submission_id})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingClasseStudent(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-4">
+              {currentVoyage.classes_concernees.filter((c) => c && c !== 'Toutes').length > 0 && (
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                    Classes prévues pour ce voyage :
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {currentVoyage.classes_concernees
+                      .filter((c) => c && c !== 'Toutes')
+                      .map((cls) => (
+                        <button
+                          key={cls}
+                          type="button"
+                          onClick={() => setNewClasseValue(cls)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                            newClasseValue.toUpperCase() === cls.toUpperCase()
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {cls}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Nom ou code de la classe :
+                </label>
+                <input
+                  type="text"
+                  value={newClasseValue}
+                  onChange={(e) => setNewClasseValue(e.target.value)}
+                  placeholder="Ex: T01, 101, 202, 6A..."
+                  className="w-full px-3.5 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 uppercase"
+                  autoFocus
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Cette classe sera immédiatement prise en compte dans le tableau de bord et le décompte d'effectif par classe.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setEditingClasseStudent(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={!newClasseValue.trim() || isSavingClasse}
+                onClick={handleSaveClasse}
+                className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
+              >
+                {isSavingClasse ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Enregistrement...</span>
+                  </>
+                ) : (
+                  <span>Enregistrer la classe</span>
                 )}
               </button>
             </div>

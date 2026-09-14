@@ -423,6 +423,23 @@ async function startServer() {
     res.json(item);
   });
 
+  // Update single inscription (e.g. change classe, student info, etc.)
+  app.put('/api/inscriptions/:id', (req: Request, res: Response) => {
+    const updated = db.updateInscription(req.params.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ error: 'Inscription non trouvée' });
+    }
+    res.json({ success: true, inscription: updated });
+  });
+
+  app.patch('/api/inscriptions/:id', (req: Request, res: Response) => {
+    const updated = db.updateInscription(req.params.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ error: 'Inscription non trouvée' });
+    }
+    res.json({ success: true, inscription: updated });
+  });
+
   // Send Relance / Reminder
   app.post('/api/inscriptions/:id/relance', async (req: Request, res: Response) => {
     const parentNum = req.body.parentNum as 1 | 2 | undefined;
