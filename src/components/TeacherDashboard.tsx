@@ -22,10 +22,13 @@ import {
   Copy,
   ArrowUpDown,
   Calculator,
+  GraduationCap,
+  Users,
 } from 'lucide-react';
 import { StudentDetailModal } from './StudentDetailModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
 import { MassRelanceModal } from './MassRelanceModal.js';
+import { exportInscriptionsToExcel } from '../utils/excelGenerator.js';
 
 interface TeacherDashboardProps {
   voyages: Voyage[];
@@ -63,6 +66,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [syncing, setSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   // Modals state
   const [activeStudent, setActiveStudent] = useState<Inscription | null>(null);
@@ -154,7 +158,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       const data = await res.json();
       if (res.ok && data.success) {
         setSyncNotice(data.message);
-        await fetchInscriptions();
+        await Promise.all([fetchInscriptions(), fetchAllTripInscriptions()]);
         onRefreshVoyages();
       } else {
         alert(data.message || 'Erreur lors de la synchronisation');
@@ -210,36 +214,90 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (!currentVoyage) return;
     if (currentVoyage.has_password && !isAdmin && !isConsultation && !voyagePassword) {
       if (onRequestUnlock) onRequestUnlock();
       return;
     }
-    const params = new URLSearchParams();
-    if (voyagePassword) params.append('password', voyagePassword);
-    const token = sessionStorage.getItem('ndm_admin_token');
-    if (isAdmin && token) params.append('adminToken', token);
-    const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
-    if (isConsultation && cToken) params.append('consultationToken', cToken);
-    const queryStr = params.toString() ? `?${params.toString()}` : '';
-    window.location.href = `/api/voyages/${currentVoyage.id}/export/excel${queryStr}`;
+
+    setIsExportingExcel(true);
+    setSyncNotice('Préparation de l\'export Excel en cours...');
+
+    try {
+      // 1. Determine list to export (prefer allTripInscriptions or current inscriptions)
+      let dataToExport = allTripInscriptions.length > 0 ? allTripInscriptions : inscriptions;
+
+      // If data is empty in state, fetch fresh from server
+      if (!dataToExport || dataToExport.length === 0) {
+        const headers: Record<string, string> = {};
+        const adminToken = sessionStorage.getItem('ndm_admin_token');
+        if (isAdmin && adminToken) headers['x-admin-token'] = adminToken;
+        const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+        if (isConsultation && cToken) headers['x-consultation-token'] = cToken;
+        if (voyagePassword) headers['x-voyage-password'] = voyagePassword;
+
+        const res = await fetch(`/api/voyages/${currentVoyage.id}/inscriptions`, { headers });
+        if (res.ok) {
+          const freshData = await res.json();
+          if (Array.isArray(freshData) && freshData.length > 0) {
+            dataToExport = freshData;
+          }
+        }
+      }
+
+      if (dataToExport && dataToExport.length > 0) {
+        const exportResult = exportInscriptionsToExcel(currentVoyage, dataToExport);
+        if (exportResult.success) {
+          setSyncNotice(`✓ Fichier Excel téléchargé avec succès : ${exportResult.filename} (${exportResult.count} dossiers)`);
+          setTimeout(() => setSyncNotice(null), 6000);
+          return;
+        }
+      }
+
+      // 2. Fallback: fetch blob from server endpoint
+      const params = new URLSearchParams();
+      if (voyagePassword) params.append('password', voyagePassword);
+      const token = sessionStorage.getItem('ndm_admin_token');
+      if (isAdmin && token) params.append('adminToken', token);
+      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      if (isConsultation && cToken) params.append('consultationToken', cToken);
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+
+      const serverRes = await fetch(`/api/voyages/${currentVoyage.id}/export/excel${queryStr}`);
+      if (!serverRes.ok) {
+        const errorText = await serverRes.text();
+        throw new Error(errorText || `Erreur serveur ${serverRes.status}`);
+      }
+
+      const blob = await serverRes.blob();
+      const safeVoyageNom = (currentVoyage.nom || 'Voyage')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `Inscriptions_${safeVoyageNom}_${new Date().toISOString().substring(0, 10)}.xlsx`;
+
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+      }, 1000);
+
+      setSyncNotice(`✓ Fichier Excel téléchargé : ${filename}`);
+      setTimeout(() => setSyncNotice(null), 6000);
+    } catch (err: any) {
+      console.error('Erreur export Excel:', err);
+      setSyncNotice(`⚠️ Échec de l'export Excel : ${err.message || 'Erreur inconnue'}`);
+      setTimeout(() => setSyncNotice(null), 6000);
+    } finally {
+      setIsExportingExcel(false);
+    }
   };
-
-  // Available classes for dropdown: dynamically include individual classes from inscriptions
-  const extractedClasses = Array.from(
-    new Set(
-      inscriptions
-        .map((i) => i.classe)
-        .filter((c) => Boolean(c) && c !== 'Non spécifiée' && c !== 'En attente')
-    )
-  );
-
-  const configuredClasses = (currentVoyage?.classes_concernees || []).flatMap((c) =>
-    c.includes('-') ? c.split('-').map((x) => x.trim()) : [c.trim()]
-  ).filter((c) => c && c !== 'Toutes');
-
-  const classesList = ['Toutes', ...Array.from(new Set([...configuredClasses, ...extractedClasses])).sort()];
 
   // Normalized key helper for matching duplicates
   const normalizeKey = (nom?: string, prenom?: string) => {
@@ -277,6 +335,66 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       return duplicateNameKeys.has(key);
     }).length;
   }, [currentVoyage?.total_doublons, allTripInscriptions, inscriptions, duplicateNameKeys]);
+
+  // Headcount and detailed statistics per class for the current trip
+  const classStatistics = useMemo(() => {
+    if (!currentVoyage) return [];
+    const listToScan = allTripInscriptions.length > 0 ? allTripInscriptions : inscriptions;
+
+    // Configured classes from trip metadata
+    const configClasses = (currentVoyage.classes_concernees || [])
+      .flatMap((c) => (c.includes('-') ? c.split('-').map((x) => x.trim()) : [c.trim()]))
+      .filter((c) => Boolean(c) && c !== 'Toutes');
+
+    // Dynamically extracted classes from student inscriptions
+    const extracted = Array.from(
+      new Set(
+        listToScan
+          .map((i) => (i.classe || '').trim())
+          .filter((c) => Boolean(c) && c !== 'Non spécifiée' && c !== 'En attente')
+      )
+    );
+
+    // Merge and natural sort
+    const uniqueClasses = Array.from(new Set([...configClasses, ...extracted])).sort((a, b) =>
+      a.localeCompare(b, 'fr', { numeric: true })
+    );
+
+    return uniqueClasses.map((classeName) => {
+      const classStudents = listToScan.filter((i) => (i.classe || '').trim() === classeName);
+      const total = classStudents.length;
+      const complets = classStudents.filter((i) => i.statut === 'COMPLET' || i.nombre_signatures === 2).length;
+      const aFinaliser = classStudents.filter((i) => i.statut === 'A_FINALISER' || i.nombre_signatures === 1).length;
+      const nonSignes = classStudents.filter((i) => i.statut === 'NON_SIGNE' || i.nombre_signatures === 0).length;
+      const tauxCompletion = total > 0 ? Math.round((complets / total) * 100) : 0;
+
+      // Count duplicates within this class
+      const keyCount = new Map<string, number>();
+      for (const st of classStudents) {
+        const k = normalizeKey(st.eleve_nom, st.eleve_prenom);
+        if (k) keyCount.set(k, (keyCount.get(k) || 0) + 1);
+      }
+      let doublonsCount = 0;
+      for (const cnt of keyCount.values()) {
+        if (cnt > 1) doublonsCount += cnt;
+      }
+
+      return {
+        classe: classeName,
+        total,
+        complets,
+        aFinaliser,
+        nonSignes,
+        tauxCompletion,
+        doublons: doublonsCount,
+      };
+    });
+  }, [currentVoyage, allTripInscriptions, inscriptions]);
+
+  // List of classes for dropdown
+  const classesList = useMemo(() => {
+    return ['Toutes', ...classStatistics.map((c) => c.classe)];
+  }, [classStatistics]);
 
   // Alphabetical sorting of students (last name ASC, then first name ASC)
   const sortedInscriptions = useMemo(() => {
@@ -358,11 +476,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </div>
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs shrink-0 transition-all cursor-pointer"
-            title="Télécharger l'export Excel du voyage sélectionné"
+            disabled={isExportingExcel}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs shrink-0 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            title="Télécharger l'export Excel complet du voyage sélectionné"
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Télécharger l'Export Excel</span>
+            <FileSpreadsheet className={`w-4 h-4 ${isExportingExcel ? 'animate-spin' : ''}`} />
+            <span>{isExportingExcel ? 'Génération en cours...' : 'Télécharger l\'Export Excel'}</span>
           </button>
         </div>
       )}
@@ -683,6 +802,141 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         </div>
       )}
 
+      {/* Effectif par classe (Répartition & Roster Headcount) */}
+      {currentVoyage && classStatistics.length > 0 && (
+        <div id="section-effectif-par-classe" className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
+                <GraduationCap className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">
+                    Effectif par classe
+                  </h3>
+                  <span className="text-[11px] font-extrabold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+                    {classStatistics.length} classe{classStatistics.length > 1 ? 's' : ''} • {currentVoyage.total_inscrits} élève{currentVoyage.total_inscrits > 1 ? 's' : ''}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 font-medium">
+                  Répartition des inscriptions par classe • Cliquez sur une classe pour filtrer le tableau ci-dessous
+                </p>
+              </div>
+            </div>
+
+            {selectedClasse !== 'Toutes' && (
+              <button
+                type="button"
+                onClick={() => setSelectedClasse('Toutes')}
+                className="self-start sm:self-auto text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Afficher à nouveau toutes les classes"
+              >
+                <span>✕ Afficher toutes les classes (actuel: {selectedClasse})</span>
+              </button>
+            )}
+          </div>
+
+          {/* Grid of class headcount cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            {classStatistics.map((stat) => {
+              const isSelected = selectedClasse === stat.classe;
+              const percentOfTotal =
+                currentVoyage.total_inscrits > 0
+                  ? Math.round((stat.total / currentVoyage.total_inscrits) * 100)
+                  : 0;
+
+              return (
+                <button
+                  key={stat.classe}
+                  type="button"
+                  id={`btn-class-card-${stat.classe}`}
+                  onClick={() => setSelectedClasse(isSelected ? 'Toutes' : stat.classe)}
+                  className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                    isSelected
+                      ? 'bg-indigo-50/90 border-indigo-500 ring-2 ring-indigo-400 shadow-xs'
+                      : 'bg-slate-50/60 border-slate-200 hover:bg-white hover:border-slate-300 hover:shadow-xs'
+                  }`}
+                  title={`Cliquer pour filtrer la classe ${stat.classe}`}
+                >
+                  {/* Top line: Class name + selection badge */}
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-black text-slate-900 tracking-tight bg-white px-2 py-0.5 rounded-md border border-slate-200/80 shadow-2xs">
+                      Classe {stat.classe}
+                    </span>
+                    {isSelected ? (
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">
+                        Sélectionnée
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-semibold text-slate-400">
+                        {percentOfTotal}%
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Main Headcount number */}
+                  <div className="mt-2.5 flex items-baseline gap-1.5">
+                    <span className="text-2xl font-black text-slate-900 tracking-tight">
+                      {stat.total}
+                    </span>
+                    <span className="text-xs font-bold text-slate-500">
+                      élève{stat.total > 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {/* Visual Completion Progress Bar */}
+                  <div className="mt-2 w-full bg-slate-200/80 h-1.5 rounded-full overflow-hidden flex">
+                    {stat.complets > 0 && (
+                      <div
+                        style={{ width: `${(stat.complets / (stat.total || 1)) * 100}%` }}
+                        className="bg-emerald-500 h-full"
+                        title={`${stat.complets} complets (2/2)`}
+                      />
+                    )}
+                    {stat.aFinaliser > 0 && (
+                      <div
+                        style={{ width: `${(stat.aFinaliser / (stat.total || 1)) * 100}%` }}
+                        className="bg-amber-500 h-full"
+                        title={`${stat.aFinaliser} à finaliser (1/2)`}
+                      />
+                    )}
+                    {stat.nonSignes > 0 && (
+                      <div
+                        style={{ width: `${(stat.nonSignes / (stat.total || 1)) * 100}%` }}
+                        className="bg-rose-500 h-full"
+                        title={`${stat.nonSignes} non signés (0/2)`}
+                      />
+                    )}
+                  </div>
+
+                  {/* Detailed counter pills */}
+                  <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] font-semibold">
+                    <span className="text-emerald-700 flex items-center gap-0.5" title="Complets (2/2)">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                      {stat.complets}
+                    </span>
+                    <span className="text-amber-700 flex items-center gap-0.5" title="À finaliser (1/2)">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                      {stat.aFinaliser}
+                    </span>
+                    <span className="text-rose-700 flex items-center gap-0.5" title="Non signés (0/2)">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block" />
+                      {stat.nonSignes}
+                    </span>
+                    {stat.doublons > 0 && (
+                      <span className="text-purple-700 font-bold" title="Doublons détectés">
+                        ⚠️{stat.doublons}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Filter and Action Bar */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -720,10 +974,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 onChange={(e) => setSelectedClasse(e.target.value)}
                 className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
-                <option value="Toutes">Toutes les classes</option>
-                {classesList.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                <option value="Toutes">Toutes les classes ({currentVoyage.total_inscrits})</option>
+                {classStatistics.map((c) => (
+                  <option key={c.classe} value={c.classe}>
+                    Classe {c.classe} ({c.total} élève{c.total > 1 ? 's' : ''} • {c.complets} compl.)
                   </option>
                 ))}
               </select>
@@ -752,11 +1006,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             <button
               id="btn-export-excel"
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition-colors"
+              disabled={isExportingExcel}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               title="Télécharger la liste sous format Excel (.xlsx)"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>Excel (.xlsx)</span>
+              <FileSpreadsheet className={`w-4 h-4 text-emerald-600 ${isExportingExcel ? 'animate-spin' : ''}`} />
+              <span>{isExportingExcel ? 'Export...' : 'Excel (.xlsx)'}</span>
             </button>
 
             {/* Export PDF */}

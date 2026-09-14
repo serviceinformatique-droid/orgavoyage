@@ -27,6 +27,7 @@ import {
   EyeOff,
   Mail,
   FileText,
+  FileSpreadsheet,
   Calculator,
   UserX,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ import { MassRelanceModal } from './MassRelanceModal.js';
 import { PdfExportModal } from './PdfExportModal.js';
 import { ConsultationPasswordModal } from './ConsultationPasswordModal.js';
 import { PurgeStudentsModal } from './PurgeStudentsModal.js';
+import { exportInscriptionsToExcel } from '../utils/excelGenerator.js';
 
 interface AdminDocuSealManagerProps {
   voyages: Voyage[];
@@ -110,6 +112,37 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
   // PDF Export modal state
   const [exportPdfVoyage, setExportPdfVoyage] = useState<{ voyage: Voyage; inscriptions: Inscription[] } | null>(null);
   const [loadingPdfId, setLoadingPdfId] = useState<string | null>(null);
+  const [loadingExcelId, setLoadingExcelId] = useState<string | null>(null);
+
+  const handleExportExcelAdmin = async (v: Voyage) => {
+    setLoadingExcelId(v.id);
+    try {
+      const res = await fetch(`/api/voyages/${v.id}/inscriptions`, {
+        headers: { 'x-admin-token': adminToken },
+      });
+      if (!res.ok) {
+        throw new Error('Impossible de charger les dossiers pour ce voyage.');
+      }
+      const data: Inscription[] = await res.json();
+      if (!data || data.length === 0) {
+        setActionNotice({ type: 'error', message: `Aucun dossier inscrit pour le voyage "${v.nom}".` });
+        return;
+      }
+      const exportRes = exportInscriptionsToExcel(v, data);
+      if (exportRes.success) {
+        setActionNotice({
+          type: 'success',
+          message: `✓ Export Excel réussi : ${exportRes.filename} (${exportRes.count} dossiers exportés)`,
+        });
+      } else {
+        throw new Error(exportRes.error || 'Erreur lors de la génération Excel');
+      }
+    } catch (err: any) {
+      setActionNotice({ type: 'error', message: `Erreur export Excel : ${err.message || 'Échec du téléchargement'}` });
+    } finally {
+      setLoadingExcelId(null);
+    }
+  };
 
   const handleOpenPdfExport = async (v: Voyage) => {
     setLoadingPdfId(v.id);
@@ -945,10 +978,19 @@ export const AdminDocuSealManager: React.FC<AdminDocuSealManagerProps> = ({
                   <button
                     onClick={() => handleOpenPdfExport(v)}
                     disabled={loadingPdfId === v.id}
-                    className="p-2 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg text-xs font-bold transition-colors"
+                    className="p-2 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                     title="Exporter la liste officielle en PDF"
                   >
                     <FileText className={`w-4 h-4 ${loadingPdfId === v.id ? 'animate-bounce' : ''}`} />
+                  </button>
+
+                  <button
+                    onClick={() => handleExportExcelAdmin(v)}
+                    disabled={loadingExcelId === v.id}
+                    className="p-2 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                    title="Exporter au format Excel (.xlsx)"
+                  >
+                    <FileSpreadsheet className={`w-4 h-4 ${loadingExcelId === v.id ? 'animate-spin' : ''}`} />
                   </button>
 
                   <button
