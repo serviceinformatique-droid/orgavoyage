@@ -10,6 +10,7 @@ interface DatabaseData {
   logs: SyncLogEntry[];
   adminPasswordHash: string; // 'Gafa8432'
   consultationPassword?: string; // 'Compta2027' by default
+  manual_class_overrides?: Record<string, string>; // Permanent manual class overrides: submission_id, full inscription_id, or student key -> chosen class
 }
 
 // Helper to extract all key-value pairs from DocuSeal submissions and submitters
@@ -277,6 +278,81 @@ export function findNormalizedVal(map: Record<string, string>, candidates: strin
   return undefined;
 }
 
+export function normalizeClassValue(raw: string | undefined, configuredClasses: string[] = []): string | undefined {
+  if (!raw || !raw.trim()) return undefined;
+  const trimmed = raw.trim();
+  const validConfigs = (configuredClasses || []).filter((c) => c && c !== 'Toutes');
+
+  if (validConfigs.length === 0) return trimmed;
+
+  const clean = trimmed
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  // 1. Exact match (case-insensitive)
+  const exact = validConfigs.find((c) => c.toLowerCase() === trimmed.toLowerCase());
+  if (exact) return exact;
+
+  // 2. Direct presence of configured class in text (e.g. "1ERE 103" contains "103", "1ère 104" contains "104", "CLASSE 101" contains "101")
+  for (const conf of validConfigs) {
+    const escaped = conf.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?:^|\\D)${escaped}(?:\\D|$)`, 'i');
+    if (re.test(trimmed)) return conf;
+  }
+
+  // 3. Helper to match grade level and division: e.g. "Première 2" -> "102", "1a" -> "101", "1ère B" -> "102"
+  const matchGrade = (pattern: RegExp, numPrefix: string) => {
+    const m = clean.match(pattern);
+    if (m && m[1]) {
+      const val = m[1].toLowerCase();
+      let div = 0;
+      if (val === 'a') div = 1;
+      else if (val === 'b') div = 2;
+      else if (val === 'c') div = 3;
+      else if (val === 'd') div = 4;
+      else if (val === 'e') div = 5;
+      else div = parseInt(val, 10);
+
+      if (div >= 1 && div <= 9) {
+        // e.g. 101, 201, 301, 401...
+        const c3 = `${numPrefix}0${div}`;
+        if (validConfigs.includes(c3)) return c3;
+        const c2 = `${numPrefix}${div}`;
+        if (validConfigs.includes(c2)) return c2;
+        const cLetter = `${numPrefix}${String.fromCharCode(64 + div)}`;
+        const foundL = validConfigs.find((c) => c.toUpperCase() === cLetter);
+        if (foundL) return foundL;
+        const cFrench = `${numPrefix === '1' ? '1ère' : numPrefix === '2' ? '2nde' : numPrefix} ${div}`;
+        const foundFr = validConfigs.find((c) => c.toLowerCase() === cFrench.toLowerCase());
+        if (foundFr) return foundFr;
+      }
+    }
+    return null;
+  };
+
+  // Première (101, 102, 103, 104...)
+  const resP = matchGrade(/(?:premiere|1[e]?(?:re)?)\s*[-_ /]?\s*([0-9]+|[a-e])/i, '1');
+  if (resP) return resP;
+
+  // Terminale (T01, T02, T1...)
+  const resT = matchGrade(/(?:terminale|t)\s*[-_ /]?\s*([0-9]+|[a-e])/i, 'T');
+  if (resT) return resT;
+
+  // Seconde (201, 202, 203...)
+  const res2 = matchGrade(/(?:seconde|2[e]?(?:nde)?)\s*[-_ /]?\s*([0-9]+|[a-e])/i, '2');
+  if (res2) return res2;
+
+  // Collège (6ème, 5ème, 4ème, 3ème)
+  for (const grade of [3, 4, 5, 6]) {
+    const resCol = matchGrade(new RegExp(`(?:${grade}[e]?(?:me)?)\\s*[-_ /]?\\s*([0-9]+|[a-e])`, 'i'), String(grade));
+    if (resCol) return resCol;
+  }
+
+  return trimmed;
+}
+
 export function extractClasse(map: Record<string, string>, configuredClasses: string[] = []): string | undefined {
   // 1. Exact candidate matches (comprehensive French school terminology)
   const exactCandidates = [
@@ -308,20 +384,13 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
   ];
 
   const exactFound = findNormalizedVal(map, exactCandidates);
-  if (exactFound) return exactFound;
-
-  // 2. Any field containing 'classe' (excluding 'classement') or 'division'
-  for (const [k, val] of Object.entries(map)) {
-    if (!val || !val.trim()) continue;
-    const cleanK = normalizeString(k);
-    if ((cleanK.includes('classe') && !cleanK.includes('classement')) || cleanK.includes('division')) {
-      return val.trim();
-    }
+  if (exactFound) {
+    return normalizeClassValue(exactFound, configuredClasses);
   }
 
-  // 3. Match any field value against configured classes for the trip (e.g. ['T01', 'T02', 'Terminale 1'])
+  // 2. Match any field value against configured classes for the trip (e.g. ['101', '102', '103', '104'])
   if (configuredClasses && configuredClasses.length > 0) {
-    for (const [k, val] of Object.entries(map)) {
+    for (const [, val] of Object.entries(map)) {
       const trimmed = (val || '').trim();
       if (!trimmed) continue;
       for (const conf of configuredClasses) {
@@ -332,13 +401,22 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
     }
   }
 
+  // 3. Any field containing 'classe' (excluding 'classement') or 'division'
+  for (const [k, val] of Object.entries(map)) {
+    if (!val || !val.trim()) continue;
+    const cleanK = normalizeString(k);
+    if ((cleanK.includes('classe') && !cleanK.includes('classement')) || cleanK.includes('division')) {
+      return normalizeClassValue(val.trim(), configuredClasses);
+    }
+  }
+
   // 4. Match against standard French school class patterns (T01, 101, 201, 6A, 3eme, Terminale 1, etc.)
   const classPattern = /^(T[0-9]{1,2}|[1-6][0-9]{2}|[1-6][eè]?(?:me)?\s*[A-Za-z0-9]+|(?:Terminale|Premi[eè]re|Seconde|[1-6][eè]me)\s*[A-Za-z0-9]*)$/i;
-  for (const [k, val] of Object.entries(map)) {
+  for (const [, val] of Object.entries(map)) {
     const trimmed = (val || '').trim();
     if (!trimmed) continue;
     if (classPattern.test(trimmed)) {
-      return trimmed;
+      return normalizeClassValue(trimmed, configuredClasses);
     }
   }
 
@@ -376,6 +454,30 @@ export class Database {
           if (!this.data.consultationPassword) {
             this.data.consultationPassword = 'Compta2027';
             changed = true;
+          }
+          if (!this.data.manual_class_overrides) {
+            this.data.manual_class_overrides = {};
+            changed = true;
+          }
+          // Backfill manual overrides from existing inscriptions
+          for (const [vId, list] of Object.entries(this.data.inscriptions)) {
+            if (Array.isArray(list)) {
+              for (const item of list) {
+                if (item.classe_modifiee_manuellement && item.classe && item.classe.trim()) {
+                  const cVal = item.classe.trim();
+                  if (item.docuseal_submission_id) {
+                    this.data.manual_class_overrides[String(item.docuseal_submission_id)] = cVal;
+                  }
+                  if (item.id) {
+                    this.data.manual_class_overrides[item.id] = cVal;
+                  }
+                  const sk = normalizeStudentKey(item.eleve_nom, item.eleve_prenom);
+                  if (sk) {
+                    this.data.manual_class_overrides[`${vId}_${sk}`] = cVal;
+                  }
+                }
+              }
+            }
           }
           // Normalize establishment to "L'établissement scolaire Notre Dame des Missions"
           this.data.voyages.forEach((v) => {
@@ -1981,12 +2083,50 @@ export class Database {
 
   // Update a single inscription (e.g. modify student class or details)
   updateInscription(id: string, partial: Partial<Inscription>): Inscription | undefined {
+    if (!this.data.manual_class_overrides) {
+      this.data.manual_class_overrides = {};
+    }
+
+    const cleanId = (id || '').trim();
+    const decodedId = decodeURIComponent(cleanId);
+
     for (const [voyageId, list] of Object.entries(this.data.inscriptions)) {
-      const idx = list.findIndex((i) => i.id === id);
+      const idx = list.findIndex(
+        (i) =>
+          i.id === cleanId ||
+          i.id === decodedId ||
+          i.docuseal_submission_id === cleanId ||
+          String(i.docuseal_submission_id) === cleanId ||
+          i.docuseal_submission_id === decodedId ||
+          String(i.docuseal_submission_id) === decodedId
+      );
+
       if (idx !== -1) {
+        const item = list[idx];
+        const isChangingClasse = partial.classe !== undefined && partial.classe.trim() !== '';
+        const newClasse = isChangingClasse ? partial.classe!.trim() : item.classe;
+
+        if (isChangingClasse) {
+          // Permanently record the manual override across all lookup keys
+          if (item.docuseal_submission_id) {
+            this.data.manual_class_overrides[String(item.docuseal_submission_id)] = newClasse;
+            this.data.manual_class_overrides[`sub_${item.docuseal_submission_id}`] = newClasse;
+          }
+          if (item.id) {
+            this.data.manual_class_overrides[item.id] = newClasse;
+          }
+          this.data.manual_class_overrides[cleanId] = newClasse;
+          const studentKey = normalizeStudentKey(item.eleve_nom, item.eleve_prenom);
+          if (studentKey) {
+            this.data.manual_class_overrides[`${voyageId}_${studentKey}`] = newClasse;
+          }
+        }
+
         list[idx] = {
-          ...list[idx],
+          ...item,
           ...partial,
+          classe: newClasse,
+          classe_modifiee_manuellement: isChangingClasse ? true : (partial.classe_modifiee_manuellement ?? item.classe_modifiee_manuellement),
           date_derniere_synchronisation: new Date().toISOString().replace('T', ' ').substring(0, 16),
         };
         const voyage = this.data.voyages.find((v) => v.id === voyageId);
@@ -2300,25 +2440,53 @@ export class Database {
           }
 
           const subIdStr = String(sub.id || `sub_${idx + 1}`);
-          const existing = currentInscriptions.find((i) => i.docuseal_submission_id === subIdStr);
+          const normKey = normalizeStudentKey(eleveNom, elevePrenom);
+          const fullId = `insc-${v.id}-${subIdStr}`;
 
-          // Resolve final class:
-          // 1) Real class found from DocuSeal fields
-          // 2) Keep existing non-empty class if already present in DB
-          // 3) Default to first trip class if specific (e.g. T01)
-          // 4) Fallback to 'Non spécifiée'
-          let classe = classeFound;
-          if (!classe || classe === 'Non spécifiée') {
-            if (existing && existing.classe && existing.classe !== 'Non spécifiée') {
-              classe = existing.classe;
-            } else if (v.classes_concernees[0] && v.classes_concernees[0] !== 'Toutes') {
-              classe = v.classes_concernees[0];
-            } else {
-              classe = 'Non spécifiée';
+          // Robust search for existing inscription in DB
+          const existing = currentInscriptions.find(
+            (i) =>
+              i.docuseal_submission_id === subIdStr ||
+              String(i.docuseal_submission_id) === subIdStr ||
+              i.id === fullId ||
+              (normKey && normalizeStudentKey(i.eleve_nom, i.eleve_prenom) === normKey)
+          );
+
+          // 1) Teacher manual override on the portal ALWAYS takes absolute priority
+          // Check permanent manual_class_overrides registry + existing inscription flags
+          const permanentManualOverride =
+            this.data.manual_class_overrides?.[subIdStr] ||
+            this.data.manual_class_overrides?.[`sub_${subIdStr}`] ||
+            this.data.manual_class_overrides?.[fullId] ||
+            (normKey ? this.data.manual_class_overrides?.[`${v.id}_${normKey}`] : undefined) ||
+            (existing?.classe_modifiee_manuellement && existing.classe ? existing.classe : undefined);
+
+          let classe = permanentManualOverride;
+          const wasManuallyModified = Boolean(permanentManualOverride);
+
+          // 2) If not manually modified by teacher, use normalized class from DocuSeal fields
+          if (!classe) {
+            classe = classeFound;
+            if (!classe || classe === 'Non spécifiée') {
+              if (existing && existing.classe && existing.classe !== 'Non spécifiée') {
+                classe = existing.classe;
+              } else if (v.classes_concernees[0] && v.classes_concernees[0] !== 'Toutes') {
+                classe = v.classes_concernees[0];
+              } else {
+                classe = 'Non spécifiée';
+              }
             }
           }
 
-          console.log(`[DocuSeal Sync] Dossier #${subIdStr} (${eleveNom} ${elevePrenom}): classe="${classe}" (DocuSeal found="${classeFound || 'none'}", fields count=${Object.keys(fieldMap).length})`);
+          // Lock in manual override into manual_class_overrides map so it is permanently preserved
+          if (wasManuallyModified && classe) {
+            if (!this.data.manual_class_overrides) this.data.manual_class_overrides = {};
+            this.data.manual_class_overrides[subIdStr] = classe;
+            this.data.manual_class_overrides[fullId] = classe;
+            if (normKey) this.data.manual_class_overrides[`${v.id}_${normKey}`] = classe;
+          }
+
+          console.log(`[DocuSeal Sync] Dossier #${subIdStr} (${eleveNom} ${elevePrenom}): classe="${classe}" (manual=${wasManuallyModified}, DocuSeal found="${classeFound || 'none'}")`);
 
           const p1Signed = subP1.status === 'completed' || Boolean(subP1.completed_at);
           const p2Signed = subP2.status === 'completed' || Boolean(subP2.completed_at);
@@ -2389,6 +2557,7 @@ export class Database {
             nombre_signatures: sigCount,
             statut: statut,
             document_url: docUrl,
+            classe_modifiee_manuellement: wasManuallyModified,
           };
         })
       );

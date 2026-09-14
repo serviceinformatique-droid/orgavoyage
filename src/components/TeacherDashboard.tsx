@@ -81,29 +81,51 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const handleSaveClasse = async () => {
     if (!editingClasseStudent || !newClasseValue.trim()) return;
     setIsSavingClasse(true);
+    const targetClass = newClasseValue.trim();
     try {
-      const res = await fetch(`/api/inscriptions/${editingClasseStudent.id}`, {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const adminToken = sessionStorage.getItem('ndm_admin_token');
+      if (adminToken) headers['x-admin-token'] = adminToken;
+      const cToken = consultationToken || sessionStorage.getItem('ndm_consultation_token');
+      if (cToken) headers['x-consultation-token'] = cToken;
+      if (voyagePassword) headers['x-voyage-password'] = voyagePassword;
+
+      const res = await fetch(`/api/inscriptions/${encodeURIComponent(editingClasseStudent.id)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ classe: newClasseValue.trim() }),
+        headers,
+        body: JSON.stringify({ classe: targetClass, classe_modifiee_manuellement: true }),
       });
-      if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && (data.success || data.inscription)) {
+        const updatedItem = data.inscription || {
+          ...editingClasseStudent,
+          classe: targetClass,
+          classe_modifiee_manuellement: true,
+        };
+
         setInscriptions((prev) =>
-          prev.map((i) => (i.id === editingClasseStudent.id ? { ...i, classe: newClasseValue.trim() } : i))
+          prev.map((i) => (i.id === editingClasseStudent.id ? { ...i, ...updatedItem, classe: targetClass, classe_modifiee_manuellement: true } : i))
         );
         setAllTripInscriptions((prev) =>
-          prev.map((i) => (i.id === editingClasseStudent.id ? { ...i, classe: newClasseValue.trim() } : i))
+          prev.map((i) => (i.id === editingClasseStudent.id ? { ...i, ...updatedItem, classe: targetClass, classe_modifiee_manuellement: true } : i))
         );
         if (activeStudent && activeStudent.id === editingClasseStudent.id) {
-          setActiveStudent((prev) => (prev ? { ...prev, classe: newClasseValue.trim() } : null));
+          setActiveStudent((prev) => (prev ? { ...prev, ...updatedItem, classe: targetClass, classe_modifiee_manuellement: true } : null));
         }
+
+        setSyncNotice(`✓ Classe mise à jour : ${editingClasseStudent.eleve_prenom} ${editingClasseStudent.eleve_nom} est désormais en classe ${targetClass}. Cette modification est verrouillée et sera conservée lors des synchronisations.`);
         setEditingClasseStudent(null);
         if (onRefreshVoyages) onRefreshVoyages();
+      } else {
+        alert(data.error || data.message || 'Erreur lors de l’enregistrement de la classe sur le serveur.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erreur mise à jour classe:', err);
+      alert(`Erreur réseau lors de la modification de classe : ${err?.message || 'Serveur injoignable'}`);
     } finally {
       setIsSavingClasse(false);
+      setTimeout(() => setSyncNotice((curr) => (curr?.startsWith('✓ Classe mise à jour') ? null : curr)), 6000);
     }
   };
 
@@ -1283,9 +1305,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-bold text-xs border transition-all cursor-pointer group ${
                             eleve.classe === 'Non spécifiée'
                               ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                              : eleve.classe_modifiee_manuellement
+                              ? 'bg-blue-50 text-blue-800 border-blue-300 hover:bg-blue-100 hover:border-blue-400'
                               : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border-slate-200 hover:border-emerald-300'
                           }`}
-                          title="Cliquer pour modifier ou assigner la classe"
+                          title={eleve.classe_modifiee_manuellement ? "Classe corrigée manuellement sur le portail (cliquer pour modifier)" : "Cliquer pour modifier ou assigner la classe"}
                         >
                           <span>{eleve.classe}</span>
                           <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100 text-slate-500 group-hover:text-emerald-700" />
@@ -1423,6 +1447,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           onRelanceSent={() => {
             fetchInscriptions();
             onRefreshVoyages();
+          }}
+          onEditClasse={(student) => {
+            setEditingClasseStudent(student);
+            setNewClasseValue(
+              student.classe === 'Non spécifiée'
+                ? currentVoyage.classes_concernees[0] && currentVoyage.classes_concernees[0] !== 'Toutes'
+                  ? currentVoyage.classes_concernees[0]
+                  : ''
+                : student.classe
+            );
           }}
         />
       )}
@@ -1581,9 +1615,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   className="w-full px-3.5 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 uppercase"
                   autoFocus
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Cette classe sera immédiatement prise en compte dans le tableau de bord et le décompte d'effectif par classe.
-                </p>
+                <div className="mt-2 p-2.5 bg-blue-50/80 border border-blue-200/70 rounded-lg text-[11px] text-blue-800 leading-relaxed">
+                  <strong>ℹ️ À savoir :</strong> Sur DocuSeal, un document déjà signé électroniquement est juridiquement scellé et ne peut plus être altéré. Cette modification manuelle est enregistrée sur votre portail et sera automatiquement préservée lors de toutes les futures synchronisations.
+                </div>
               </div>
             </div>
 

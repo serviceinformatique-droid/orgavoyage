@@ -28,6 +28,7 @@ export interface Inscription {
   document_url?: string;
   derniere_relance?: string;
   remarques?: string;
+  classe_modifiee_manuellement?: boolean;
 }
 
 export interface Voyage {

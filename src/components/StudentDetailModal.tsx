@@ -13,7 +13,8 @@ import {
   User,
   Send,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Pencil
 } from 'lucide-react';
 
 interface StudentDetailModalProps {
@@ -22,6 +23,7 @@ interface StudentDetailModalProps {
   allInscriptions?: Inscription[];
   onClose: () => void;
   onRelanceSent: () => void;
+  onEditClasse?: (student: Inscription) => void;
 }
 
 interface RelanceResult {
@@ -42,6 +44,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   allInscriptions = [],
   onClose,
   onRelanceSent,
+  onEditClasse,
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedMessage, setCopiedMessage] = useState(false);
@@ -151,9 +154,28 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           <h2 className="text-2xl font-extrabold tracking-tight">
             {inscription.eleve_prenom} {inscription.eleve_nom}
           </h2>
-          <p className="text-sm text-slate-300 mt-0.5">
-            Classe <strong className="text-white font-semibold">{inscription.classe}</strong> • {voyage.nom}
-          </p>
+          <div className="flex flex-wrap items-center gap-2 mt-0.5">
+            <p className="text-sm text-slate-300">
+              Classe <strong className="text-white font-semibold">{inscription.classe}</strong>
+              {inscription.classe_modifiee_manuellement && (
+                <span className="ml-1.5 text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-500/25 text-blue-200 border border-blue-400/30">
+                  Verrouillée
+                </span>
+              )}
+              {' '}• {voyage.nom}
+            </p>
+            {onEditClasse && (
+              <button
+                type="button"
+                onClick={() => onEditClasse(inscription)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors cursor-pointer"
+                title="Modifier manuellement la classe de cet élève"
+              >
+                <Pencil className="w-3 h-3" />
+                <span>Modifier</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="p-6 space-y-6">
