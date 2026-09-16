@@ -189,6 +189,63 @@ export function cleanFieldValue(val: any): string | null {
   return null;
 }
 
+export const TECHNICAL_METADATA_KEYS = new Set([
+  'id',
+  'field_id',
+  'template_field_id',
+  'submitter_id',
+  'submission_id',
+  'template_id',
+  'order',
+  'page',
+  'x',
+  'y',
+  'width',
+  'height',
+  'role',
+  'type',
+  'required',
+  'readonly',
+  'created_at',
+  'updated_at',
+  'slug',
+  'status',
+  'documents',
+  'position',
+  'index',
+  'source',
+  'source_id',
+  'audit_id',
+  'audit_log_id',
+  'event_id',
+  'user_id',
+  'account_id',
+  'app_id',
+  'external_id',
+  'batch_id',
+  'recipient_id',
+  'step',
+  'step_number',
+  'version',
+  'signature',
+  'signature_id',
+  'completed_at',
+  'opened_at',
+  'sent_at',
+  'declined_at',
+  'color',
+  'font',
+  'fontsize',
+  'font_size',
+  'align',
+  'validation',
+  'currency',
+  'format',
+  'mask',
+  'pattern',
+  'options',
+]);
+
 export function collectFieldsFromSources(sources: any[]): Record<string, string> {
   const targetMap: Record<string, string> = {};
 
@@ -196,11 +253,26 @@ export function collectFieldsFromSources(sources: any[]): Record<string, string>
     if (!rawKey) return;
     const keyStr = String(rawKey).trim();
     if (!keyStr) return;
+
+    // Never add internal numeric index or technical metadata keys as field names
+    const cleanK = keyStr.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    if (TECHNICAL_METADATA_KEYS.has(cleanK) || TECHNICAL_METADATA_KEYS.has(keyStr.toLowerCase())) {
+      return;
+    }
+    // Pure integer keys (like "301", "302") are field IDs, not human field labels
+    if (/^[0-9]+$/.test(keyStr)) {
+      return;
+    }
+
     const valStr = cleanFieldValue(rawVal);
     if (!valStr) return;
+
     // Don't overwrite an existing non-empty value with empty
     if (!targetMap[keyStr] || targetMap[keyStr].trim() === '') {
       targetMap[keyStr] = valStr.trim();
+    }
+    if (!targetMap[cleanK] || targetMap[cleanK].trim() === '') {
+      targetMap[cleanK] = valStr.trim();
     }
   };
 
@@ -213,20 +285,15 @@ export function collectFieldsFromSources(sources: any[]): Record<string, string>
         const val = el.value !== undefined && el.value !== null ? el.value : el.default_value;
         if (key && val !== undefined) {
           add(key, val);
-        } else if (typeof el === 'object') {
-          for (const [k, v] of Object.entries(el)) {
-            if (['id', 'created_at', 'updated_at', 'slug', 'status'].includes(k)) continue;
-            add(k, v);
-          }
         }
       }
     } else if (typeof item === 'object') {
       for (const [k, v] of Object.entries(item)) {
-        if (['id', 'created_at', 'updated_at', 'slug', 'status', 'template_id', 'submission_id', 'documents'].includes(k)) continue;
+        if (TECHNICAL_METADATA_KEYS.has(k.toLowerCase()) || /^[0-9]+$/.test(k)) continue;
         if (v && typeof v === 'object' && !Array.isArray(v) && ('value' in v || 'label' in v || 'text' in v)) {
           const subKey = (v as any).name || (v as any).field || k;
           add(subKey, (v as any).value !== undefined ? (v as any).value : ((v as any).label ?? (v as any).text));
-        } else {
+        } else if (typeof v !== 'object') {
           add(k, v);
         }
       }
@@ -354,6 +421,24 @@ export function normalizeClassValue(raw: string | undefined, configuredClasses: 
 }
 
 export function extractClasse(map: Record<string, string>, configuredClasses: string[] = []): string | undefined {
+  const isSchoolClass = (val: string): boolean => {
+    const v = val.trim();
+    if (!v) return false;
+    // Terminale: T01-T09, T1-T9, TG1-TG9, Terminale 1-9, T STMG, etc.
+    if (/^(T0[1-9]|T[1-9]|TG[0-9]{1,2}|T\s*STMG|Terminale\s*[0-9A-Za-z]+)$/i.test(v)) return true;
+    // Première: 101-109, 1G1-1G9, 1ère 1-9, etc.
+    if (/^(10[1-9]|1G[0-9]{1,2}|1[eè]?(?:re)?\s*[0-9A-Za-z]+)$/i.test(v)) return true;
+    // Seconde: 201-209, 2G1-2G9, 2nde 1-9, etc.
+    if (/^(20[1-9]|2G[0-9]{1,2}|2[eè]?(?:nde)?\s*[0-9A-Za-z]+)$/i.test(v)) return true;
+    // Collège: 601-609, 501-509, 401-409, 301-309, 6A-3F, etc.
+    if (/^([3-6]0[1-9]|[3-6][eè]?(?:me)?\s*[0-9A-Za-z]+|[3-6][A-F])$/i.test(v)) return true;
+    // Configured classes for this trip
+    if (configuredClasses && configuredClasses.some((c) => c && c !== 'Toutes' && c.toLowerCase() === v.toLowerCase())) {
+      return true;
+    }
+    return false;
+  };
+
   // 1. Exact candidate matches (comprehensive French school terminology)
   const exactCandidates = [
     'classe',
@@ -363,24 +448,23 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
     "classe de l'eleve",
     "classe de l eleve",
     'classe eleve',
+    'classe de leleve',
+    'classe de lenfant',
     'division',
     'classe actuelle',
     'classe scolaire',
     'division scolaire',
+    'classe frequentee',
+    'classe frequantee',
+    'classe de scolarisation',
+    'classe division',
+    'section classe',
+    'classe section',
     'classe1',
     'classe 1',
     'classe_1',
-    'enfant classe',
-    'eleve classe',
-    'division classe',
-    'niveau classe',
-    'classe niveau',
-    'section classe',
-    'classe section',
     'class',
     'grade',
-    'classe de leleve',
-    'classe de lenfant',
   ];
 
   const exactFound = findNormalizedVal(map, exactCandidates);
@@ -388,15 +472,58 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
     return normalizeClassValue(exactFound, configuredClasses);
   }
 
-  // 2. Match any field value against configured classes for the trip (e.g. ['101', '102', '103', '104'])
-  if (configuredClasses && configuredClasses.length > 0) {
-    for (const [, val] of Object.entries(map)) {
-      const trimmed = (val || '').trim();
-      if (!trimmed) continue;
-      for (const conf of configuredClasses) {
-        if (conf && conf !== 'Toutes' && trimmed.toLowerCase() === conf.toLowerCase()) {
-          return conf;
-        }
+  // 2. Multiple choice / dropdown / select fields (e.g. "CHAMP SÉLECTION MULTIPLE 1" in DocuSeal)
+  // When forms are created in DocuSeal, dropdown fields get default names like "CHAMP SÉLECTION MULTIPLE 1".
+  // If such a field's value matches a class pattern or configured class, it has the highest priority!
+  const dropdownCandidates = [
+    'champ selection multiple 1',
+    'champ selection multiple 2',
+    'champ selection multiple',
+    'champ selection unique 1',
+    'champ selection unique 2',
+    'champ selection unique',
+    'selection multiple 1',
+    'selection multiple 2',
+    'selection multiple',
+    'selection unique 1',
+    'selection unique 2',
+    'selection unique',
+    'choix multiple 1',
+    'choix multiple 2',
+    'choix multiple',
+    'choix unique 1',
+    'choix unique',
+    'liste deroulante 1',
+    'liste deroulante 2',
+    'liste deroulante',
+    'dropdown 1',
+    'dropdown',
+    'select 1',
+    'select',
+    'multiple choice 1',
+    'multiple choice',
+  ];
+
+  for (const cand of dropdownCandidates) {
+    const candVal = findNormalizedVal(map, [cand]);
+    if (candVal && isSchoolClass(candVal)) {
+      return normalizeClassValue(candVal, configuredClasses);
+    }
+  }
+
+  // Also check any field containing "selection", "choix", "deroulant", "dropdown", "select"
+  for (const [k, val] of Object.entries(map)) {
+    if (!val || !val.trim()) continue;
+    const cleanK = normalizeString(k);
+    if (
+      cleanK.includes('selection') ||
+      cleanK.includes('choix') ||
+      cleanK.includes('deroulan') ||
+      cleanK.includes('dropdown') ||
+      cleanK.includes('select')
+    ) {
+      if (isSchoolClass(val)) {
+        return normalizeClassValue(val.trim(), configuredClasses);
       }
     }
   }
@@ -410,13 +537,79 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
     }
   }
 
-  // 4. Match against standard French school class patterns (T01, 101, 201, 6A, 3eme, Terminale 1, etc.)
-  const classPattern = /^(T[0-9]{1,2}|[1-6][0-9]{2}|[1-6][eè]?(?:me)?\s*[A-Za-z0-9]+|(?:Terminale|Premi[eè]re|Seconde|[1-6][eè]me)\s*[A-Za-z0-9]*)$/i;
-  for (const [, val] of Object.entries(map)) {
+  // Blacklist of keys that must NEVER be treated as school classes in fallback scans
+  const isBlacklistedKey = (key: string): boolean => {
+    const k = normalizeString(key);
+    if (
+      k.includes('nom') ||
+      k.includes('prenom') ||
+      k.includes('responsable') ||
+      k.includes('parent') ||
+      k.includes('enfant') ||
+      k.includes('eleve') ||
+      k.includes('representant') ||
+      k.includes('adresse') ||
+      k.includes('rue') ||
+      k.includes('ville') ||
+      k.includes('city') ||
+      k.includes('postal') ||
+      k.includes('zip') ||
+      k.includes('cp') ||
+      k.includes('telephone') ||
+      k.includes('tel') ||
+      k.includes('phone') ||
+      k.includes('mobile') ||
+      k.includes('portable') ||
+      k.includes('mail') ||
+      k.includes('email') ||
+      k.includes('date') ||
+      k.includes('fait') ||
+      k.includes('naissance') ||
+      k.includes('age') ||
+      k.includes('signature') ||
+      k.includes('field') ||
+      k.includes('template') ||
+      k.includes('submitter') ||
+      k.includes('submission') ||
+      k.includes('page') ||
+      k.includes('order') ||
+      k.includes('width') ||
+      k.includes('height')
+    ) {
+      return !k.includes('classe') && !k.includes('division');
+    }
+    return false;
+  };
+
+  // 4. Match configured classes across remaining non-blacklisted fields
+  if (configuredClasses && configuredClasses.length > 0) {
+    for (const [k, val] of Object.entries(map)) {
+      if (isBlacklistedKey(k)) continue;
+      const trimmed = (val || '').trim();
+      if (!trimmed) continue;
+      for (const conf of configuredClasses) {
+        if (conf && conf !== 'Toutes' && trimmed.toLowerCase() === conf.toLowerCase()) {
+          return conf;
+        }
+      }
+    }
+  }
+
+  // 5. Match against standard French school class patterns on remaining non-blacklisted fields
+  for (const [k, val] of Object.entries(map)) {
+    if (isBlacklistedKey(k)) continue;
     const trimmed = (val || '').trim();
     if (!trimmed) continue;
-    if (classPattern.test(trimmed)) {
+    if (isSchoolClass(trimmed)) {
       return normalizeClassValue(trimmed, configuredClasses);
+    }
+  }
+
+  // 6. Last fallback: if there is a dropdown field with a short non-empty value (even if unusual class name)
+  for (const cand of dropdownCandidates) {
+    const candVal = findNormalizedVal(map, [cand]);
+    if (candVal && candVal.length <= 15 && !candVal.includes('@') && !/^[0-9]{5,}$/.test(candVal)) {
+      return normalizeClassValue(candVal, configuredClasses);
     }
   }
 
@@ -2300,15 +2493,12 @@ export class Database {
             sub.values,
             sub.fields,
             sub.data,
-            sub.template_fields,
-            sub.template?.fields,
           ];
 
           for (const s of sortedSubmitters) {
             sourcesToInspect.push(s.fields);
             sourcesToInspect.push(s.values);
             sourcesToInspect.push(s.data);
-            sourcesToInspect.push(s.metadata);
           }
 
           if (Array.isArray(sub.submitters)) {
