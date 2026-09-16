@@ -472,10 +472,20 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
     return normalizeClassValue(exactFound, configuredClasses);
   }
 
-  // 2. Multiple choice / dropdown / select fields (e.g. "CHAMP SÉLECTION MULTIPLE 1" in DocuSeal)
-  // When forms are created in DocuSeal, dropdown fields get default names like "CHAMP SÉLECTION MULTIPLE 1".
+  // 2. Multiple choice / dropdown / select fields (e.g. "Multiple Field 1" or "CHAMP SÉLECTION MULTIPLE 1" in DocuSeal)
+  // When forms are created in DocuSeal, dropdown fields get default names like "Multiple Field 1" or "CHAMP SÉLECTION MULTIPLE 1".
   // If such a field's value matches a class pattern or configured class, it has the highest priority!
   const dropdownCandidates = [
+    'multiple field 1',
+    'multiple field 2',
+    'multiple field',
+    'multiple_field_1',
+    'multiple choice 1',
+    'multiple choice 2',
+    'multiple choice',
+    'multiple 1',
+    'multiple 2',
+    'multiple',
     'champ selection multiple 1',
     'champ selection multiple 2',
     'champ selection multiple',
@@ -500,8 +510,6 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
     'dropdown',
     'select 1',
     'select',
-    'multiple choice 1',
-    'multiple choice',
   ];
 
   for (const cand of dropdownCandidates) {
@@ -511,11 +519,12 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
     }
   }
 
-  // Also check any field containing "selection", "choix", "deroulant", "dropdown", "select"
+  // Also check any field containing "multiple", "selection", "choix", "deroulant", "dropdown", "select"
   for (const [k, val] of Object.entries(map)) {
     if (!val || !val.trim()) continue;
     const cleanK = normalizeString(k);
     if (
+      cleanK.includes('multiple') ||
       cleanK.includes('selection') ||
       cleanK.includes('choix') ||
       cleanK.includes('deroulan') ||
@@ -567,16 +576,17 @@ export function extractClasse(map: Record<string, string>, configuredClasses: st
       k.includes('naissance') ||
       k.includes('age') ||
       k.includes('signature') ||
-      k.includes('field') ||
-      k.includes('template') ||
-      k.includes('submitter') ||
-      k.includes('submission') ||
-      k.includes('page') ||
-      k.includes('order') ||
-      k.includes('width') ||
-      k.includes('height')
+      k === 'id' ||
+      k === 'x' ||
+      k === 'y' ||
+      k === 'width' ||
+      k === 'height' ||
+      k.startsWith('template') ||
+      k.startsWith('submitter') ||
+      k.startsWith('submission') ||
+      k.startsWith('fieldid')
     ) {
-      return !k.includes('classe') && !k.includes('division');
+      return !k.includes('classe') && !k.includes('division') && !k.includes('multiple');
     }
     return false;
   };
