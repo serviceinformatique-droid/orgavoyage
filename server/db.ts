@@ -662,21 +662,21 @@ export class Database {
             this.data.manual_class_overrides = {};
             changed = true;
           }
-          // Backfill manual overrides from existing inscriptions
+          // Backfill manual overrides from existing inscriptions (strictly scoped by voyage ID)
           for (const [vId, list] of Object.entries(this.data.inscriptions)) {
             if (Array.isArray(list)) {
               for (const item of list) {
                 if (item.classe_modifiee_manuellement && item.classe && item.classe.trim()) {
                   const cVal = item.classe.trim();
                   if (item.docuseal_submission_id) {
-                    this.data.manual_class_overrides[String(item.docuseal_submission_id)] = cVal;
+                    this.data.manual_class_overrides[`${vId}_sub_${item.docuseal_submission_id}`] = cVal;
                   }
                   if (item.id) {
-                    this.data.manual_class_overrides[item.id] = cVal;
+                    this.data.manual_class_overrides[`${vId}_id_${item.id}`] = cVal;
                   }
                   const sk = normalizeStudentKey(item.eleve_nom, item.eleve_prenom);
                   if (sk) {
-                    this.data.manual_class_overrides[`${vId}_${sk}`] = cVal;
+                    this.data.manual_class_overrides[`${vId}_name_${sk}`] = cVal;
                   }
                 }
               }
@@ -2284,20 +2284,36 @@ export class Database {
     return undefined;
   }
 
-  // Update a single inscription (e.g. modify student class or details)
-  updateInscription(id: string, partial: Partial<Inscription>): Inscription | undefined {
+  // Update a single inscription (e.g. modify student class or details) - strictly scoped to prevent cross-voyage leaks
+  updateInscription(id: string, partial: Partial<Inscription>, voyageIdHint?: string): Inscription | undefined {
     if (!this.data.manual_class_overrides) {
       this.data.manual_class_overrides = {};
     }
 
     const cleanId = (id || '').trim();
     const decodedId = decodeURIComponent(cleanId);
+    const targetVoyageId = voyageIdHint || (partial as any).voyage_id;
 
-    for (const [voyageId, list] of Object.entries(this.data.inscriptions)) {
+    // 1. If voyageId is specified, look only inside that voyage first
+    const voyageEntries = targetVoyageId && this.data.inscriptions[targetVoyageId]
+      ? [[targetVoyageId, this.data.inscriptions[targetVoyageId]] as [string, Inscription[]]]
+      : Object.entries(this.data.inscriptions);
+
+    // Pass 1: exact matching on primary inscription ID
+    for (const [voyageId, list] of voyageEntries) {
+      const idx = list.findIndex(
+        (i) => i.id === cleanId || i.id === decodedId
+      );
+
+      if (idx !== -1) {
+        return this.applyInscriptionUpdate(voyageId, list, idx, cleanId, partial);
+      }
+    }
+
+    // Pass 2: match on docuseal_submission_id only within the hinted voyage (or if uniquely found)
+    for (const [voyageId, list] of voyageEntries) {
       const idx = list.findIndex(
         (i) =>
-          i.id === cleanId ||
-          i.id === decodedId ||
           i.docuseal_submission_id === cleanId ||
           String(i.docuseal_submission_id) === cleanId ||
           i.docuseal_submission_id === decodedId ||
@@ -2305,46 +2321,58 @@ export class Database {
       );
 
       if (idx !== -1) {
-        const item = list[idx];
-        const isChangingClasse = partial.classe !== undefined && partial.classe.trim() !== '';
-        const newClasse = isChangingClasse ? partial.classe!.trim() : item.classe;
-
-        if (isChangingClasse) {
-          // Permanently record the manual override across all lookup keys
-          if (item.docuseal_submission_id) {
-            this.data.manual_class_overrides[String(item.docuseal_submission_id)] = newClasse;
-            this.data.manual_class_overrides[`sub_${item.docuseal_submission_id}`] = newClasse;
-          }
-          if (item.id) {
-            this.data.manual_class_overrides[item.id] = newClasse;
-          }
-          this.data.manual_class_overrides[cleanId] = newClasse;
-          const studentKey = normalizeStudentKey(item.eleve_nom, item.eleve_prenom);
-          if (studentKey) {
-            this.data.manual_class_overrides[`${voyageId}_${studentKey}`] = newClasse;
-          }
-        }
-
-        list[idx] = {
-          ...item,
-          ...partial,
-          classe: newClasse,
-          classe_modifiee_manuellement: isChangingClasse ? true : (partial.classe_modifiee_manuellement ?? item.classe_modifiee_manuellement),
-          date_derniere_synchronisation: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        };
-        const voyage = this.data.voyages.find((v) => v.id === voyageId);
-        if (voyage) {
-          voyage.total_complets = list.filter((i) => i.statut === 'COMPLET').length;
-          voyage.total_a_finaliser = list.filter((i) => i.statut === 'A_FINALISER').length;
-          voyage.total_non_signes = list.filter((i) => i.statut === 'NON_SIGNE').length;
-          voyage.total_doublons = countDoublons(list);
-          voyage.updated_at = new Date().toISOString().replace('T', ' ').substring(0, 16);
-        }
-        this.saveToFile();
-        return list[idx];
+        return this.applyInscriptionUpdate(voyageId, list, idx, cleanId, partial);
       }
     }
+
     return undefined;
+  }
+
+  private applyInscriptionUpdate(
+    voyageId: string,
+    list: Inscription[],
+    idx: number,
+    cleanId: string,
+    partial: Partial<Inscription>
+  ): Inscription {
+    const item = list[idx];
+    const isChangingClasse = partial.classe !== undefined && partial.classe.trim() !== '';
+    const newClasse = isChangingClasse ? partial.classe!.trim() : item.classe;
+
+    if (isChangingClasse) {
+      if (!this.data.manual_class_overrides) {
+        this.data.manual_class_overrides = {};
+      }
+      // Strictly voyage-scoped overrides to NEVER leak between different voyages
+      if (item.docuseal_submission_id) {
+        this.data.manual_class_overrides[`${voyageId}_sub_${item.docuseal_submission_id}`] = newClasse;
+      }
+      if (item.id) {
+        this.data.manual_class_overrides[`${voyageId}_id_${item.id}`] = newClasse;
+      }
+      const studentKey = normalizeStudentKey(item.eleve_nom, item.eleve_prenom);
+      if (studentKey) {
+        this.data.manual_class_overrides[`${voyageId}_name_${studentKey}`] = newClasse;
+      }
+    }
+
+    list[idx] = {
+      ...item,
+      ...partial,
+      classe: newClasse,
+      classe_modifiee_manuellement: isChangingClasse ? true : (partial.classe_modifiee_manuellement ?? item.classe_modifiee_manuellement),
+      date_derniere_synchronisation: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+    const voyage = this.data.voyages.find((v) => v.id === voyageId);
+    if (voyage) {
+      voyage.total_complets = list.filter((i) => i.statut === 'COMPLET').length;
+      voyage.total_a_finaliser = list.filter((i) => i.statut === 'A_FINALISER').length;
+      voyage.total_non_signes = list.filter((i) => i.statut === 'NON_SIGNE').length;
+      voyage.total_doublons = countDoublons(list);
+      voyage.updated_at = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    }
+    this.saveToFile();
+    return list[idx];
   }
 
   // Trigger 100% REAL sync with DocuSeal API
@@ -2653,12 +2681,11 @@ export class Database {
           );
 
           // 1) Teacher manual override on the portal ALWAYS takes absolute priority
-          // Check permanent manual_class_overrides registry + existing inscription flags
+          // Check permanent manual_class_overrides registry (STRICTLY SCOPED TO THIS VOYAGE) + existing inscription flags
           const permanentManualOverride =
-            this.data.manual_class_overrides?.[subIdStr] ||
-            this.data.manual_class_overrides?.[`sub_${subIdStr}`] ||
-            this.data.manual_class_overrides?.[fullId] ||
-            (normKey ? this.data.manual_class_overrides?.[`${v.id}_${normKey}`] : undefined) ||
+            (normKey ? this.data.manual_class_overrides?.[`${v.id}_name_${normKey}`] : undefined) ||
+            this.data.manual_class_overrides?.[`${v.id}_id_${fullId}`] ||
+            this.data.manual_class_overrides?.[`${v.id}_sub_${subIdStr}`] ||
             (existing?.classe_modifiee_manuellement && existing.classe ? existing.classe : undefined);
 
           let classe = permanentManualOverride;
@@ -2678,12 +2705,12 @@ export class Database {
             }
           }
 
-          // Lock in manual override into manual_class_overrides map so it is permanently preserved
+          // Lock in manual override into manual_class_overrides map so it is permanently preserved for this voyage only
           if (wasManuallyModified && classe) {
             if (!this.data.manual_class_overrides) this.data.manual_class_overrides = {};
-            this.data.manual_class_overrides[subIdStr] = classe;
-            this.data.manual_class_overrides[fullId] = classe;
-            if (normKey) this.data.manual_class_overrides[`${v.id}_${normKey}`] = classe;
+            this.data.manual_class_overrides[`${v.id}_sub_${subIdStr}`] = classe;
+            this.data.manual_class_overrides[`${v.id}_id_${fullId}`] = classe;
+            if (normKey) this.data.manual_class_overrides[`${v.id}_name_${normKey}`] = classe;
           }
 
           console.log(`[DocuSeal Sync] Dossier #${subIdStr} (${eleveNom} ${elevePrenom}): classe="${classe}" (manual=${wasManuallyModified}, DocuSeal found="${classeFound || 'none'}")`);

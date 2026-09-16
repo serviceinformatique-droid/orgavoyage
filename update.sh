@@ -72,8 +72,10 @@ if id "portail-voyages" >/dev/null 2>&1; then
   chmod -R 750 "$APP_DIR"
   # S'assurer que le dossier data est accessible en écriture
   chmod -R 770 "$APP_DIR/data" 2>/dev/null || true
+  chmod +x "$APP_DIR/update.sh" 2>/dev/null || true
   echo -e "${GREEN}✓ Droits d'accès accordés à l'utilisateur portail-voyages.${NC}"
 fi
+chmod +x "$APP_DIR/update.sh" 2>/dev/null || true
 
 # Redémarrage automatique du service systemd
 if command -v systemctl >/dev/null 2>&1; then

@@ -93,7 +93,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       const res = await fetch(`/api/inscriptions/${encodeURIComponent(editingClasseStudent.id)}`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({ classe: targetClass, classe_modifiee_manuellement: true }),
+        body: JSON.stringify({
+          classe: targetClass,
+          classe_modifiee_manuellement: true,
+          voyage_id: currentVoyage?.id,
+        }),
       });
       const data = await res.json().catch(() => ({}));
 

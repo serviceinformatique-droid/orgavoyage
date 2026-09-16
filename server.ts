@@ -425,7 +425,7 @@ async function startServer() {
 
   // Update single inscription (e.g. change classe, student info, etc.)
   app.put('/api/inscriptions/:id', (req: Request, res: Response) => {
-    const updated = db.updateInscription(req.params.id, req.body);
+    const updated = db.updateInscription(req.params.id, req.body, req.body?.voyage_id);
     if (!updated) {
       return res.status(404).json({ error: 'Inscription non trouvée' });
     }
@@ -433,7 +433,7 @@ async function startServer() {
   });
 
   app.patch('/api/inscriptions/:id', (req: Request, res: Response) => {
-    const updated = db.updateInscription(req.params.id, req.body);
+    const updated = db.updateInscription(req.params.id, req.body, req.body?.voyage_id);
     if (!updated) {
       return res.status(404).json({ error: 'Inscription non trouvée' });
     }
