@@ -313,14 +313,43 @@ Toutes les données (voyages, inscriptions, signatures, logs) sont enregistrées
 - Grâce à Proxmox, vous pouvez également planifier des **Snapshots ou Backups VZDump** quotidiens de votre conteneur LXC.
 
 ### Procédure de mise à jour du code
-Pour déployer une mise à jour :
+Pour déployer une mise à jour sur votre conteneur LXC, vous pouvez lancer le script dédié :
+```bash
+/opt/portail-voyages/app/update.sh
+```
+
+Ou manuellement étape par étape :
 ```bash
 cd /opt/portail-voyages/app
 git pull
-npm install
+npm install --include=dev
 npm run build
+chown -R portail-voyages:portail-voyages /opt/portail-voyages/app
 systemctl restart portail-voyages
 ```
+
+#### Dépannage si le script update.sh ne met pas à jour :
+1. **Rendre le script exécutable :**
+   ```bash
+   chmod +x /opt/portail-voyages/app/update.sh
+   ```
+2. **Exécuter en tant que `root` (ou avec `sudo`) :**
+   Le redémarrage du service systemd nécessite les privilèges administrateur :
+   ```bash
+   sudo /opt/portail-voyages/app/update.sh
+   ```
+3. **En cas de conflit Git local :**
+   Si des fichiers locaux bloquent le `git pull` :
+   ```bash
+   cd /opt/portail-voyages/app
+   git stash
+   git pull origin main
+   ```
+4. **Oubli des outils de compilation en environnement de production :**
+   Si `NODE_ENV=production` est défini, `npm install` standard ignore `vite` et `esbuild`. Utilisez toujours :
+   ```bash
+   npm install --include=dev
+   ```
 
 ### Consultation des logs en direct
 ```bash
