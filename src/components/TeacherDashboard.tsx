@@ -1577,15 +1577,23 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
 
             <div className="py-4 space-y-4">
-              {currentVoyage.classes_concernees.filter((c) => c && c !== 'Toutes').length > 0 && (
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-                    Classes prévues pour ce voyage :
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {currentVoyage.classes_concernees
-                      .filter((c) => c && c !== 'Toutes')
-                      .map((cls) => (
+              {(() => {
+                const availableClasses = Array.from(
+                  new Set([
+                    ...(currentVoyage.classes_concernees || []),
+                    ...classesList,
+                  ])
+                ).filter((c) => c && c !== 'Toutes' && c !== 'Non spécifiée');
+
+                if (availableClasses.length === 0) return null;
+
+                return (
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                      Classes prévues pour ce voyage :
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {availableClasses.map((cls) => (
                         <button
                           key={cls}
                           type="button"
@@ -1599,9 +1607,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           {cls}
                         </button>
                       ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
